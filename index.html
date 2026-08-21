@@ -238,6 +238,9 @@ input,select,textarea{font-family:inherit;}
 .nav-item.active{background:var(--navy-3);color:#fff;}
 .nav-item.active::before{content:'';position:absolute;left:-14px;top:8px;bottom:8px;width:3px;background:var(--lv5);border-radius:0 3px 3px 0;}
 .nav-item:hover{background:rgba(255,255,255,0.05);}
+.nav-item-logout{color:var(--danger);margin-top:6px;}
+.nav-item-logout:hover{background:rgba(230,57,70,0.12);}
+@media(max-width:640px){.nav-item-logout{margin-top:0;order:99;}}
 .sidebar-footer{margin-top:auto;padding-top:14px;border-top:1px solid var(--navy-3);}
 .sidebar-user{font-size:13px;color:var(--mist-dim);padding:0 6px 10px;}
 .sidebar-user b{color:var(--snow);display:block;font-size:14px;}
@@ -273,13 +276,18 @@ input,select,textarea{font-family:inherit;}
 .stat.c-lv5{border-left-color:var(--lv5);}
 .stat.c-danger{border-left-color:var(--danger);}
 
-table{width:100%;border-collapse:collapse;font-size:14px;}
-th{text-align:left;color:var(--mist-dim);font-size:11px;text-transform:uppercase;letter-spacing:0.06em;padding:8px 10px;border-bottom:1px solid var(--navy-3);}
-td{padding:10px 10px;border-bottom:1px solid var(--navy-3);}
+table{width:100%;border-collapse:collapse;font-size:14.5px;}
+th{text-align:left;color:var(--mist-dim);font-size:11.5px;text-transform:uppercase;letter-spacing:0.05em;font-weight:700;padding:10px 12px;border-bottom:1px solid var(--navy-3);white-space:nowrap;}
+td{padding:12px 12px;border-bottom:1px solid var(--navy-3);vertical-align:middle;}
 tr:last-child td{border-bottom:none;}
+.table-wrap{overflow-x:auto;margin:0 -4px;}
+.table-wrap table{min-width:600px;}
 tbody tr{transition:background .1s;}
-tbody tr:hover{background:rgba(255,255,255,0.025);}
-.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:12px;font-weight:700;white-space:nowrap;}
+tbody tr:nth-child(even){background:rgba(255,255,255,0.014);}
+tbody tr:hover{background:rgba(255,255,255,0.035);}
+.actions-cell{display:flex;gap:8px;flex-wrap:nowrap;white-space:nowrap;}
+.truncate{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle;}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:12.5px;font-weight:700;white-space:nowrap;}
 .dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0;}
 
 .avatar{width:32px;height:32px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:800;font-size:13px;color:#fff;flex-shrink:0;}
@@ -288,7 +296,7 @@ tbody tr:hover{background:rgba(255,255,255,0.025);}
 .icon-btn{background:transparent;border:1px solid var(--navy-4);color:var(--mist);border-radius:8px;padding:6px 10px;font-size:13px;font-weight:600;transition:background .12s;}
 .icon-btn.danger{color:var(--danger);border-color:rgba(230,57,70,0.4);}
 .icon-btn:hover{background:var(--navy-3);}
-.status-select{background:var(--navy);border:1px solid var(--navy-4);color:var(--snow);border-radius:8px;padding:5px 8px;font-size:12.5px;font-weight:600;}
+.status-select{background:var(--navy);border:1.5px solid var(--navy-4);color:var(--snow);border-radius:8px;padding:7px 10px;font-size:13.5px;font-weight:600;min-width:130px;}
 
 .toast{
   position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(20px);
@@ -442,6 +450,7 @@ tbody tr:hover{background:rgba(255,255,255,0.025);}
     </div>
     <button class="btn btn-primary btn-block" onclick="doLogin()" id="login-btn">Zaloguj się</button>
     <div class="login-error" id="login-error"></div>
+    <div class="app-version" style="text-align:center;margin-top:16px;color:var(--mist-dim);font-size:11px;letter-spacing:0.04em;"></div>
   </div>
 </div>
 
@@ -452,7 +461,7 @@ tbody tr:hover{background:rgba(255,255,255,0.025);}
     <div id="nav-items"></div>
     <div class="sidebar-footer">
       <div class="sidebar-user"><b id="sidebar-username">—</b><span id="sidebar-role-label"></span></div>
-      <button class="btn btn-outline btn-block" onclick="doLogout()">Wyloguj</button>
+      <div class="app-version" style="font-size:10.5px;color:var(--mist-dim);text-align:center;margin-top:6px;"></div>
     </div>
   </nav>
   <div class="main" id="main-content"></div>
@@ -495,6 +504,11 @@ tbody tr:hover{background:rgba(255,255,255,0.025);}
       <button class="btn btn-primary" style="flex:1" id="im-save-btn" onclick="saveInstructor()">Zapisz</button>
     </div>
   </div>
+</div>
+
+<!-- ================= MODAL (student history + description) ================= -->
+<div class="modal-backdrop" id="student-modal-backdrop">
+  <div class="modal" style="max-width:640px;" id="student-modal-content"></div>
 </div>
 
 <script type="module">
@@ -544,6 +558,25 @@ if ('serviceWorker' in navigator) {
 ===================================================================== */
 
 /* ============ CONSTANTS ============ */
+/* =====================================================================
+   WERSJA APLIKACJI
+   Numer poniżej jest podnoszony przy każdej edycji tego pliku i wyświetlany
+   w interfejsie (ekran logowania + dolna część panelu bocznego), żeby dało
+   się szybko sprawdzić, czy na urządzeniu wgrała się najnowsza wersja.
+   Historia zmian:
+   1.0.0 — pierwsza działająca wersja (logowanie, zapisy, statystyki, SMS-y)
+   1.1.0 — naprawa błędu "Dalej" w kreatorze zapisu, przyciski bliżej pól,
+           przeprojektowanie wizualne, typ zajęć / płatność / status / uwagi,
+           przycisk Wyloguj widoczny też na telefonie
+   1.2.0 — czytelniejsze tabele, edytowalna cena zajęć (z podpowiedzią
+           domyślną), numer wersji w interfejsie
+   1.3.0 — zakładka Uczniowie dostępna też dla instruktorów, wyszukiwarka
+           uczniów po imieniu/telefonie, pełna historia nauki ucznia
+           i trwały opis ucznia edytowalny przez instruktorów
+===================================================================== */
+const APP_VERSION = '1.3.0';
+document.querySelectorAll('.app-version').forEach(el => el.textContent = 'v' + APP_VERSION);
+
 const LEVELS = [
   {n:1, key:'lv1', label:'Pierwsze kroki', desc:'Nigdy nie stał(a) na nartach lub 1–2 razy w życiu'},
   {n:2, key:'lv2', label:'Podstawy',        desc:'Jeździ pługiem, skręca niepewnie'},
@@ -567,9 +600,11 @@ const AVATAR_PALETTE = ['#2FA84F','#2E7FE8','#E63946','#F2A900','#9B5DE5','#00B4
 /* ============ GLOBAL STATE ============ */
 let loginRole = 'operator';
 let currentUser = null;   // {uid, name, role, email, pricePerLesson, canManageAll}
-let unsubUsers = null, unsubLessons = null;
+let unsubUsers = null, unsubLessons = null, unsubStudents = null;
 let instructors = [];     // all instructor profiles
 let lessons = [];         // all lessons (live)
+let studentNotes = {};    // phone -> {notes, updatedByName, updatedAt}
+let studentSearchQuery = '';
 let settings = {basePrice:120, instructorRateDefault:60, lessonDuration:60, dayStart:9, dayEnd:16, smsWebhookUrl:''};
 let currentPage = 'zapisy';
 
@@ -604,8 +639,7 @@ function avatarHtml(name){
   return `<span class="avatar" style="background:${avatarColor(name)}">${initials(name)}</span>`;
 }
 function lessonPrice(l){
-  const size = (l.lessonType==='group') ? (l.groupSize||2) : 1;
-  return (l.clientPrice||0) * size;
+  return l.clientPrice||0; // stored as the final total price for the booking
 }
 function statusBadge(status){
   const map = {
@@ -676,6 +710,7 @@ onAuthStateChanged(auth, async (user)=>{
     document.getElementById('app-shell').classList.remove('active');
     if(unsubUsers) unsubUsers();
     if(unsubLessons) unsubLessons();
+    if(unsubStudents) unsubStudents();
     return;
   }
   const snap = await getDoc(doc(db,'users',user.uid));
@@ -689,6 +724,7 @@ onAuthStateChanged(auth, async (user)=>{
   await loadSettings();
   subscribeInstructors();
   subscribeLessons();
+  subscribeStudents();
   renderNav();
   currentPage = 'zapisy';
   renderPage();
@@ -731,6 +767,14 @@ function subscribeLessons(){
     renderPage();
   });
 }
+function subscribeStudents(){
+  if(unsubStudents) unsubStudents();
+  unsubStudents = onSnapshot(collection(db,'students'), (qs)=>{
+    studentNotes = {};
+    qs.forEach(d=>studentNotes[d.id] = d.data());
+    if(currentPage==='uczniowie') renderStudentsList();
+  });
+}
 
 /* ============ NAV ============ */
 function renderNav(){
@@ -743,12 +787,13 @@ function renderNav(){
     ['ustawienia','⚙️','Ustawienia'],
   ] : [
     ['zapisy','📅','Kalendarz'],
+    ['uczniowie','🧑‍🎓','Uczniowie'],
     ['moje','🎿','Moje godziny'],
   ];
   const nav = document.getElementById('nav-items');
   nav.innerHTML = items.map(([key,icon,label])=>
     `<button class="nav-item ${currentPage===key?'active':''}" onclick="goTo('${key}')">${icon} ${label}</button>`
-  ).join('');
+  ).join('') + `<button class="nav-item nav-item-logout" onclick="doLogout()">🚪 Wyloguj</button>`;
 }
 window.goTo = function(page){ currentPage = page; renderNav(); renderPage(); };
 
@@ -785,13 +830,13 @@ function renderCalendarPage(main){
         <h3>${fmtDatePL(calSelectedDate)}</h3>
         <div id="day-list">
           ${dayLessons.length===0 ? `<div class="empty-state"><b>Brak zajęć</b>Wybierz inny dzień lub dodaj nowy zapis.</div>` :
-          `<table><thead><tr><th>Godz.</th><th>Uczeń</th><th>Instruktor</th><th>Poziom</th><th>Typ</th><th>Płatność</th><th>Status</th><th></th></tr></thead><tbody>
+          `<div class="table-wrap"><table><thead><tr><th>Godz.</th><th>Uczeń</th><th>Instruktor</th><th>Poz.</th><th>Typ</th><th>Płatność</th><th>Status</th><th></th></tr></thead><tbody>
             ${dayLessons.map(l=>{
               const lv = levelMeta(l.level);
               const canManage = currentUser.role==='operator' || currentUser.canManageAll || l.instructorId===currentUser.uid;
               return `<tr>
                 <td><b>${l.time}</b></td>
-                <td>${l.studentName}<br><span style="color:var(--mist-dim);font-size:12px;">${l.studentPhone}</span></td>
+                <td>${l.studentName}<br><span style="color:var(--mist-dim);font-size:12.5px;">${l.studentPhone}</span></td>
                 <td>${l.instructorName}</td>
                 <td><span class="badge" style="background:${cssColor(lv.key)}22;color:${cssColor(lv.key)};"><span class="dot" style="background:${cssColor(lv.key)}"></span>${lv.n}</span></td>
                 <td>${typeBadge(l)}</td>
@@ -802,7 +847,7 @@ function renderCalendarPage(main){
                 <td>${canManage ? `<button class="icon-btn danger" onclick="deleteLesson('${l.id}')">Usuń</button>` : ''}</td>
               </tr>`;
             }).join('')}
-          </tbody></table>`}
+          </tbody></table></div>`}
         </div>
       </div>
     </div>
@@ -850,9 +895,8 @@ window.onLessonStatusChange = async function(sel, id){
   showToast('Status zaktualizowany');
 };
 
-/* ============ STUDENTS PAGE (operator) ============ */
-function renderStudentsPage(main){
-  // students derived from lessons (unique by phone)
+/* ============ STUDENTS PAGE (operator + instructor) ============ */
+function buildStudentsMap(){
   const map = new Map();
   lessons.forEach(l=>{
     const k = l.studentPhone;
@@ -861,23 +905,105 @@ function renderStudentsPage(main){
     s.count++;
     if(l.date >= s.lastDate){ s.lastDate = l.date; s.level = l.level; s.paymentStatus = l.paymentStatus; }
   });
-  const list = [...map.values()].sort((a,b)=>b.lastDate.localeCompare(a.lastDate));
+  return [...map.values()].sort((a,b)=>b.lastDate.localeCompare(a.lastDate));
+}
+
+function renderStudentsPage(main){
   main.innerHTML = `
     <div class="page-head"><div><div class="page-sub">Baza kursantów</div><h1>Uczniowie</h1></div>
     <button class="btn btn-gold" onclick="openWizard()">＋ Nowy zapis</button></div>
     <div class="card">
-      ${list.length===0 ? `<div class="empty-state"><b>Brak uczniów</b>Zapisz pierwszego kursanta.</div>` :
-      `<table><thead><tr><th>Imię</th><th>Telefon</th><th>Ostatni poziom</th><th>Liczba zajęć</th><th>Ostatnie zajęcia</th><th>Płatność</th></tr></thead><tbody>
-      ${list.map(s=>{
-        const lv = levelMeta(s.level);
-        return `<tr><td class="name-cell">${avatarHtml(s.name)}<b>${s.name}</b></td><td>${s.phone}</td>
-        <td><span class="badge" style="background:${cssColor(lv.key)}22;color:${cssColor(lv.key)};"><span class="dot" style="background:${cssColor(lv.key)}"></span>${lv.n} — ${lv.label}</span></td>
-        <td>${s.count}</td><td>${fmtDatePL(s.lastDate)}</td><td>${paymentBadge(s.paymentStatus)}</td></tr>`;
-      }).join('')}
-      </tbody></table>`}
+      <div class="field" style="max-width:360px;margin-bottom:16px;">
+        <label>Szukaj po imieniu lub numerze telefonu</label>
+        <input type="text" id="student-search" placeholder="np. Kasia albo 512345678" value="${studentSearchQuery}" oninput="onStudentSearchInput(this)">
+      </div>
+      <div id="students-list-container"></div>
     </div>
   `;
+  renderStudentsList();
 }
+
+function renderStudentsList(){
+  const container = document.getElementById('students-list-container');
+  if(!container) return;
+  const all = buildStudentsMap();
+  const q = studentSearchQuery.toLowerCase();
+  const list = q ? all.filter(s => s.name.toLowerCase().includes(q) || s.phone.toLowerCase().includes(q)) : all;
+
+  if(all.length===0){
+    container.innerHTML = `<div class="empty-state"><b>Brak uczniów</b>Zapisz pierwszego kursanta.</div>`;
+    return;
+  }
+  if(list.length===0){
+    container.innerHTML = `<div class="empty-state"><b>Brak wyników</b>Nic nie pasuje do „${studentSearchQuery}”.</div>`;
+    return;
+  }
+  container.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Imię</th><th>Telefon</th><th>Ostatni poziom</th><th>Zajęcia</th><th>Ostatnio</th><th>Płatność</th><th>Opis</th><th></th></tr></thead><tbody>
+    ${list.map(s=>{
+      const lv = levelMeta(s.level);
+      const hasNote = !!(studentNotes[s.phone]?.notes);
+      return `<tr>
+        <td class="name-cell">${avatarHtml(s.name)}<b>${s.name}</b></td>
+        <td>${s.phone}</td>
+        <td><span class="badge" style="background:${cssColor(lv.key)}22;color:${cssColor(lv.key)};"><span class="dot" style="background:${cssColor(lv.key)}"></span>${lv.n} — ${lv.label}</span></td>
+        <td>${s.count}</td>
+        <td>${fmtDatePL(s.lastDate)}</td>
+        <td>${paymentBadge(s.paymentStatus)}</td>
+        <td>${hasNote ? '<span class="badge" style="background:#9B5DE522;color:#9B5DE5;">Jest opis</span>' : '<span style="color:var(--mist-dim);font-size:12.5px;">—</span>'}</td>
+        <td><button class="icon-btn" onclick="openStudentDetail('${s.phone}')">Historia</button></td>
+      </tr>`;
+    }).join('')}
+    </tbody></table></div>`;
+}
+window.onStudentSearchInput = function(el){
+  studentSearchQuery = el.value;
+  renderStudentsList();
+};
+
+/* --- Student detail modal: full lesson history + persistent instructor note --- */
+window.openStudentDetail = function(phone){
+  const studentLessons = lessons.filter(l=>l.studentPhone===phone).sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
+  const latest = studentLessons[0];
+  const name = latest ? latest.studentName : phone;
+  const existingNote = studentNotes[phone] || {};
+  const content = document.getElementById('student-modal-content');
+  content.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:18px;">
+      <div class="name-cell">${avatarHtml(name)}<div><h3 style="font-size:22px;">${name}</h3><div style="color:var(--mist-dim);font-size:13px;">${phone}</div></div></div>
+      <button class="wizard-close" style="font-size:24px;" onclick="closeStudentModal()">✕</button>
+    </div>
+
+    <div class="field">
+      <label>Opis ucznia ${existingNote.updatedByName ? `<span style="text-transform:none;letter-spacing:0;color:var(--mist-dim);">— ostatnio: ${existingNote.updatedByName}</span>` : ''}</label>
+      <textarea id="student-notes-input" rows="3" placeholder="Charakter, tempo nauki, obawy, ulubiony sprzęt, na co uważać…">${existingNote.notes||''}</textarea>
+    </div>
+    <button class="btn btn-primary" style="margin-bottom:22px;" onclick="saveStudentNotes('${phone}')">Zapisz opis</button>
+
+    <h3 style="font-size:17px;margin-bottom:10px;">Historia nauki (${studentLessons.length})</h3>
+    ${studentLessons.length===0 ? `<div class="empty-state" style="padding:20px;"><b>Brak zajęć</b></div>` :
+    `<div class="table-wrap"><table><thead><tr><th>Data</th><th>Godz.</th><th>Instruktor</th><th>Poziom</th><th>Status</th><th>Uwagi z zajęć</th></tr></thead><tbody>
+      ${studentLessons.map(l=>{
+        const lv = levelMeta(l.level);
+        return `<tr><td>${fmtDatePL(l.date)}</td><td>${l.time}</td><td>${l.instructorName}</td>
+        <td><span class="badge" style="background:${cssColor(lv.key)}22;color:${cssColor(lv.key)};">${lv.n}</span></td>
+        <td>${statusBadge(l.status)}</td><td style="max-width:220px;">${l.notes ? l.notes : '<span style="color:var(--mist-dim);">—</span>'}</td></tr>`;
+      }).join('')}
+    </tbody></table></div>`}
+  `;
+  document.getElementById('student-modal-backdrop').classList.add('active');
+};
+window.closeStudentModal = function(){ document.getElementById('student-modal-backdrop').classList.remove('active'); };
+window.saveStudentNotes = async function(phone){
+  const val = document.getElementById('student-notes-input').value.trim();
+  try{
+    await setDoc(doc(db,'students',phone), {
+      notes: val, updatedBy: currentUser.uid, updatedByName: currentUser.name, updatedAt: serverTimestamp()
+    }, {merge:true});
+    showToast('Opis ucznia zapisany');
+  }catch(e){
+    showToast('Błąd zapisu opisu — sprawdź reguły Firestore dla kolekcji "students"');
+  }
+};
 
 /* ============ INSTRUCTORS PAGE (operator) ============ */
 function renderInstructorsPage(main){
@@ -886,14 +1012,16 @@ function renderInstructorsPage(main){
     <button class="btn btn-primary" onclick="openInstructorModal()">＋ Dodaj instruktora</button></div>
     <div class="card">
       ${instructors.length===0 ? `<div class="empty-state"><b>Brak instruktorów</b>Dodaj pierwsze konto instruktorskie.</div>` :
-      `<table><thead><tr><th>Imię</th><th>E-mail</th><th>Stawka</th><th>Zarządza wszystkim</th><th></th></tr></thead><tbody>
+      `<div class="table-wrap"><table><thead><tr><th>Imię</th><th>E-mail</th><th>Stawka</th><th>Uprawnienia</th><th></th></tr></thead><tbody>
       ${instructors.map(i=>`<tr>
-        <td class="name-cell">${avatarHtml(i.name)}<b>${i.name}</b></td><td>${i.email}</td><td>${fmtMoney(i.pricePerLesson)}</td>
-        <td>${i.canManageAll ? '<span class="badge" style="background:#2FA84F22;color:#2FA84F;">Tak</span>' : '<span class="badge" style="background:#8FA4B822;color:#8FA4B8;">Nie</span>'}</td>
-        <td><button class="icon-btn" onclick="openInstructorModal('${i.uid}')">Edytuj</button>
-        <button class="icon-btn danger" onclick="removeInstructor('${i.uid}')">Usuń</button></td>
+        <td class="name-cell">${avatarHtml(i.name)}<b>${i.name}</b></td>
+        <td><span class="truncate" title="${i.email}">${i.email}</span></td>
+        <td>${fmtMoney(i.pricePerLesson)}</td>
+        <td>${i.canManageAll ? '<span class="badge" style="background:#2FA84F22;color:#2FA84F;">Zarządza wszystkim</span>' : '<span class="badge" style="background:#8FA4B822;color:#8FA4B8;">Tylko swoje</span>'}</td>
+        <td><div class="actions-cell"><button class="icon-btn" onclick="openInstructorModal('${i.uid}')">Edytuj</button>
+        <button class="icon-btn danger" onclick="removeInstructor('${i.uid}')">Usuń</button></div></td>
       </tr>`).join('')}
-      </tbody></table>`}
+      </tbody></table></div>`}
     </div>
   `;
 }
@@ -982,9 +1110,9 @@ function renderStatsPage(main){
     <div class="card">
       <h3>Instruktorzy w tym miesiącu</h3>
       ${rows.length===0 ? `<div class="empty-state"><b>Brak danych</b>Jeszcze żadnych zajęć w tym miesiącu.</div>` :
-      `<table><thead><tr><th>Instruktor</th><th>Zajęcia</th><th>Godziny</th><th>Wypłata</th></tr></thead><tbody>
+      `<div class="table-wrap"><table><thead><tr><th>Instruktor</th><th>Zajęcia</th><th>Godziny</th><th>Wypłata</th></tr></thead><tbody>
       ${rows.map(r=>`<tr><td class="name-cell">${avatarHtml(r.name)}<b>${r.name}</b></td><td>${r.count}</td><td>${(r.count*settings.lessonDuration/60).toFixed(1)}h</td><td>${fmtMoney(r.payout)}</td></tr>`).join('')}
-      </tbody></table>`}
+      </tbody></table></div>`}
     </div>
   `;
 }
@@ -1009,10 +1137,10 @@ function renderMyStatsPage(main){
     <div class="card">
       <h3>Ostatnie zajęcia</h3>
       ${mine.length===0 ? `<div class="empty-state"><b>Brak zajęć</b></div>` :
-      `<table><thead><tr><th>Data</th><th>Godz.</th><th>Uczeń</th><th>Poziom</th><th>Status</th><th>Wypłata</th></tr></thead><tbody>
+      `<div class="table-wrap"><table><thead><tr><th>Data</th><th>Godz.</th><th>Uczeń</th><th>Poziom</th><th>Status</th><th>Wypłata</th></tr></thead><tbody>
       ${mine.slice(-15).reverse().map(l=>{const lv=levelMeta(l.level);return `<tr><td>${fmtDatePL(l.date)}</td><td>${l.time}</td><td>${l.studentName}</td>
       <td><span class="badge" style="background:${cssColor(lv.key)}22;color:${cssColor(lv.key)};">${lv.n}</span></td><td>${statusBadge(l.status)}</td><td>${fmtMoney(l.instructorPay)}</td></tr>`}).join('')}
-      </tbody></table>`}
+      </tbody></table></div>`}
     </div>
   `;
 }
@@ -1027,10 +1155,10 @@ function renderRemindersPage(main){
     <div class="card">
       <h3>Jutro (${fmtDatePL(tmrIso)}) — ${tmrLessons.length} zajęć</h3>
       ${tmrLessons.length===0 ? `<div class="empty-state"><b>Brak zajęć jutro</b>Nie ma czego przypominać.</div>` : `
-      <table><thead><tr><th>Godz.</th><th>Uczeń</th><th>Telefon</th><th>Instruktor</th><th>Status</th></tr></thead><tbody>
+      <div class="table-wrap"><table><thead><tr><th>Godz.</th><th>Uczeń</th><th>Telefon</th><th>Instruktor</th><th>Status</th></tr></thead><tbody>
       ${tmrLessons.map(l=>`<tr><td><b>${l.time}</b></td><td>${l.studentName}</td><td>${l.studentPhone}</td><td>${l.instructorName}</td>
       <td>${l.reminderSent ? '<span class="badge" style="background:#2FA84F22;color:#2FA84F;">Wysłano</span>' : '<span class="badge" style="background:#8FA4B822;color:#8FA4B8;">Oczekuje</span>'}</td></tr>`).join('')}
-      </tbody></table>
+      </tbody></table></div>
       <button class="btn btn-gold" style="margin-top:16px;" onclick="approveReminders('${tmrIso}')">✓ Zatwierdź i wyślij SMS-y (${tmrLessons.filter(l=>!l.reminderSent).length})</button>
       `}
       ${!settings.smsWebhookUrl ? `<div class="field-error" style="text-align:left;margin-top:14px;">Brak skonfigurowanego adresu bramki SMS. Ustaw go w zakładce Ustawienia po podłączeniu dostawcy (np. Sendly/SMSAPI) przez Cloud Function — patrz plik functions-example.js.</div>` : ''}
@@ -1072,7 +1200,7 @@ function renderSettingsPage(main){
       <div class="field"><label>Adres bramki SMS (URL Cloud Function)</label><input id="set-smsurl" value="${settings.smsWebhookUrl||''}" placeholder="https://europe-central2-twojprojekt.cloudfunctions.net/sendReminders"></div>
       <div class="field" style="max-width:260px;"><label>Domyślna stawka dla nowych instruktorów (zł/zajęcia)</label><input type="number" id="set-instr-default" value="${settings.instructorRateDefault}"></div>
       <button class="btn btn-primary" onclick="saveSettings()">Zapisz ustawienia</button>
-      <div style="color:var(--mist-dim);font-size:13px;margin-top:10px;">Indywidualne stawki dla poszczególnych instruktorów ustawiasz w zakładce Instruktorzy. Przy zajęciach grupowych cena dla klienta mnożona jest przez liczbę uczestników.</div>
+      <div style="color:var(--mist-dim);font-size:13px;margin-top:10px;">Indywidualne stawki dla poszczególnych instruktorów ustawiasz w zakładce Instruktorzy. Ta cena to tylko podpowiedź przy nowym zapisie — na ekranie potwierdzenia zapisu można ją zawsze łatwo zmienić dla konkretnego ucznia.</div>
     </div>
   `;
 }
@@ -1095,7 +1223,8 @@ window.openWizard = function(){
     instructorId: currentUser.role==='instructor' ? currentUser.uid : null,
     instructorName: currentUser.role==='instructor' ? currentUser.name : null,
     time:null, name:'', countryCode:'+48', phone:'', level:null,
-    lessonType:'individual', groupSize:2, paymentStatus:'unpaid', notes:''
+    lessonType:'individual', groupSize:2, paymentStatus:'unpaid', notes:'',
+    price: settings.basePrice, priceTouched:false
   };
   const d = new Date(); wCalMonth = d.getMonth(); wCalYear = d.getFullYear();
   document.getElementById('wizard-overlay').classList.add('active');
@@ -1219,7 +1348,9 @@ function renderWizardStep(){
 
   if(step==='confirm'){
     const lv = levelMeta(wData.level);
-    const price = settings.basePrice * (wData.lessonType==='group' ? wData.groupSize : 1);
+    if(!wData.priceTouched){
+      wData.price = settings.basePrice * (wData.lessonType==='group' ? wData.groupSize : 1);
+    }
     body.innerHTML = `<div class="wizard-panel">
       <h2>Potwierdź zapis</h2>
       <div class="wizard-hint">Sprawdź dane przed zapisaniem</div>
@@ -1231,7 +1362,6 @@ function renderWizardStep(){
           <div class="summary-row"><span class="k">Uczeń</span><span class="v">${wData.name}</span></div>
           <div class="summary-row"><span class="k">Telefon</span><span class="v">${wData.countryCode} ${wData.phone}</span></div>
           <div class="summary-row"><span class="k">Poziom</span><span class="v" style="color:${cssColor(lv.key)}">${lv.n} — ${lv.label}</span></div>
-          <div class="summary-row"><span class="k">Cena</span><span class="v">${fmtMoney(price)}${wData.lessonType==='group'?` (za ${wData.groupSize} os.)`:''}</span></div>
         </div>
 
         <div class="optional-block">
@@ -1245,6 +1375,17 @@ function renderWizardStep(){
             <label>Liczba uczestników</label>
             <input type="number" min="2" max="12" value="${wData.groupSize}" oninput="onGroupSizeInput(this)">
           </div>` : ''}
+
+          <div class="opt-label">Cena za te zajęcia</div>
+          <div class="field" style="margin-bottom:6px;">
+            <div style="position:relative;">
+              <input type="number" min="0" step="5" id="w-price-input" value="${wData.price}" style="padding-right:52px;" oninput="onPriceInput(this)">
+              <span style="position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--mist-dim);font-weight:700;font-size:13px;">zł</span>
+            </div>
+          </div>
+          <div style="margin-bottom:14px;">
+            <button type="button" class="icon-btn" onclick="resetPriceToDefault()">↺ Cena domyślna (${fmtMoney(settings.basePrice * (wData.lessonType==='group' ? wData.groupSize : 1))})</button>
+          </div>
 
           <div class="opt-label">Płatność</div>
           <div class="choice-row">
@@ -1326,7 +1467,27 @@ window.onPhoneFieldInput = function(el){
 };
 
 window.setLessonType = function(type){ wData.lessonType = type; renderWizardStep(); };
-window.onGroupSizeInput = function(el){ wData.groupSize = Math.max(2, Number(el.value)||2); };
+window.onGroupSizeInput = function(el){
+  wData.groupSize = Math.max(2, Number(el.value)||2);
+  if(!wData.priceTouched){
+    wData.price = settings.basePrice * wData.groupSize;
+    const priceEl = document.getElementById('w-price-input');
+    if(priceEl) priceEl.value = wData.price;
+    const hint = el.closest('.optional-block')?.querySelector('.icon-btn');
+    if(hint) hint.textContent = `↺ Cena domyślna (${fmtMoney(wData.price)})`;
+  }
+};
+window.onPriceInput = function(el){
+  wData.price = Number(el.value)||0;
+  wData.priceTouched = true;
+};
+window.resetPriceToDefault = function(){
+  wData.priceTouched = false;
+  wData.price = settings.basePrice * (wData.lessonType==='group' ? wData.groupSize : 1);
+  const priceEl = document.getElementById('w-price-input');
+  if(priceEl) priceEl.value = wData.price;
+  showToast('Przywrócono cenę domyślną');
+};
 window.setPaymentStatus = function(status){ wData.paymentStatus = status; renderWizardStep(); };
 window.onNotesInput = function(el){ wData.notes = el.value; };
 
@@ -1344,7 +1505,7 @@ window.submitWizard = async function(){
       studentName: wData.name.trim(),
       studentPhone: wData.countryCode + wData.phone,
       level: wData.level,
-      clientPrice: settings.basePrice,
+      clientPrice: wData.price,
       instructorPay: instructorPay,
       lessonType: wData.lessonType,
       groupSize: wData.lessonType==='group' ? wData.groupSize : 1,
