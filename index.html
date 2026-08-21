@@ -672,8 +672,45 @@ if ('serviceWorker' in navigator) {
            kliknięcie zajętej komórki otwiera pełną edycję zajęć (zmiana
            daty, godziny, instruktora, statusu); jeden dotyk przełącznika
            "zł"/"✓" oznacza płatność bez otwierania edycji
+   1.8.0 — przerwa obiadowa naprawiona i rozbudowana: generowanie godzin
+           jest teraz sekwencyjne, więc zajęcia realnie ruszają zaraz po
+           zakończeniu przerwy zamiast czekać na kolejny sztywny slot
+           (np. przy przerwie 13:00–13:30 kolejne zajęcia zaczynają się
+           o 13:30, nie o 14:00); domyślna godzina przerwy zmieniona na
+           13:30; można teraz ustawić inną przerwę (godzinę i długość)
+           dla wybranych dni tygodnia w Ustawieniach — grafik dnia i
+           kreator zapisu korzystają z jednej wspólnej logiki, więc
+           zawsze pokazują to samo
+   1.8.1 — korekta: domyślna przerwa obiadowa to 13:00–13:30 (start o 13:00,
+           30 min), nie 13:30 jak omyłkowo ustawiono w 1.8.0
+   1.9.0 — pełny audyt aplikacji, naprawa 11 błędów:
+           • imiona z apostrofem/cudzysłowem ("O'Neil") rozwalały układ
+             strony i przyciski — wszystkie dane użytkownika są teraz
+             escapowane przed wyświetleniem
+           • rodzeństwo zapisane na ten sam numer telefonu rodzica scalało
+             się w jednego ucznia i dzieliło opis — uczniowie rozróżniani
+             są teraz po numerze ORAZ imieniu
+           • pisanie w wyszukiwarce uczniów gubiło kursor, gdy w tle
+             napłynęły nowe dane z bazy
+           • przerwa osobista instruktora wypadała o złej godzinie
+             (liczona samym czasem zajęć zamiast rytmem grafiku dnia)
+           • SMS-y były oznaczane jako wysłane nawet gdy bramka zwróciła
+             błąd — teraz oznaczane są tylko faktycznie wysłane
+           • brak sprawdzenia kolizji przy finalnym zapisie pozwalał dwóm
+             osobom zapisać ucznia na ten sam termin
+           • zmiana czasu trwania zajęć w Ustawieniach przepisywała wstecz
+             historyczne statystyki godzin — czas jest teraz zapisywany
+             przy każdych zajęciach
+           • statystyka "zajęcia w 7 dni" myliła się o dzień przez strefy
+             czasowe
+           • nieudane zakładanie konta instruktora zostawiało wyciek
+             zasobów; dodano też czytelne komunikaty błędów
+           • usunięcie instruktora zostawiało jego nieobecności blokujące
+             terminy w grafiku
+           • brak obsługi Enter (logowanie), Escape i kliknięcia w tło
+             (zamykanie okien); dodano też obsługę błędów połączenia z bazą
 ===================================================================== */
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.9.0';
 document.querySelectorAll('.app-version').forEach(el => el.textContent = 'v' + APP_VERSION);
 
 const LEVELS = [
@@ -694,6 +731,7 @@ const COUNTRY_CODES = [
 const DOW = ['Nd','Pn','Wt','Śr','Cz','Pt','So'];
 const MONTHS = ['Styczeń','Luty','Marzec','Kwiecień','Maj','Czerwiec','Lipiec','Sierpień','Wrzesień','Październik','Listopad','Grudzień'];
 const STATUS_LABELS = {planned:'Zaplanowane', completed:'Odbyte', noshow:'Nieobecność', cancelled:'Odwołane'};
+const WEEKDAY_LABELS = ['Niedziela','Poniedziałek','Wtorek','Środa','Czwartek','Piątek','Sobota']; // index = Date.getDay()
 const AVATAR_PALETTE = ['#2FA84F','#2E7FE8','#E63946','#F2A900','#9B5DE5','#00B4A6'];
 
 /* ============ GLOBAL STATE ============ */
@@ -706,13 +744,68 @@ let studentNotes = {};    // phone -> {notes, updatedByName, updatedAt}
 let studentSearchQuery = '';
 let absences = [];        // reported instructor unavailability (all-day or partial)
 let unsubAbsences = null;
-let settings = {basePrice:120, instructorRateDefault:60, lessonDuration:55, dayStart:9, dayEnd:16, smsWebhookUrl:'', breakBetweenLessons:5, lunchBreakEnabled:true, lunchBreakStart:'13:00', lunchBreakDuration:30};
+let settings = {basePrice:120, instructorRateDefault:60, lessonDuration:55, dayStart:9, dayEnd:16, smsWebhookUrl:'', breakBetweenLessons:5, lunchBreakEnabled:true, lunchBreakStart:'13:00', lunchBreakDuration:30, lunchBreakOverrides:{}};
 let currentPage = 'zapisy';
 
 /* ============ HELPERS ============ */
+/* Wszystkie dane od użytkownika (imiona, uwagi, powody nieobecności) trafiają
+   do innerHTML, więc MUSZĄ być escapowane — inaczej imię z apostrofem
+   ("O'Neil") albo cudzysłowem rozwala układ strony i przyciski. */
+function esc(s){
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+/* Do wstawiania wewnątrz onclick="fn('...')" — escapuje apostrof i backslash */
+function escAttr(s){
+  return String(s ?? '').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+}
 function pad(n){return String(n).padStart(2,'0');}
 function toMinutes(hhmm){ const [h,m] = hhmm.split(':').map(Number); return h*60+(m||0); }
 function fromMinutes(min){ return `${pad(Math.floor(min/60))}:${pad(min%60)}`; }
+
+// Resolves the effective lunch break for a given date: a per-weekday
+// override if one is set, otherwise the school-wide default.
+function getLunchBreakForDate(dateIso){
+  const dow = new Date(dateIso+'T00:00:00').getDay();
+  const ov = settings.lunchBreakOverrides && settings.lunchBreakOverrides[dow];
+  const cfg = ov || {enabled:settings.lunchBreakEnabled, start:settings.lunchBreakStart, duration:settings.lunchBreakDuration};
+  if(!cfg.enabled) return null;
+  const start = toMinutes(cfg.start || '13:00');
+  return {start, end: start + (cfg.duration||30)};
+}
+
+// Sequentially lays out lesson start times across the working day. Unlike a
+// fixed grid, when the next lesson would land inside the lunch break, the
+// cursor jumps straight to the break's end — so lessons resume right after
+// the break instead of waiting for the next fixed slot.
+function generateDaySlots(dateIso){
+  const dayStartMin = settings.dayStart*60, dayEndMin = settings.dayEnd*60;
+  const cadence = settings.lessonDuration + (settings.breakBetweenLessons||0);
+  const lunch = getLunchBreakForDate(dateIso);
+  const slots = [];
+  let t = dayStartMin;
+  let guard = 0;
+  while(t + settings.lessonDuration <= dayEndMin && guard++ < 200){
+    if(lunch && t < lunch.end && t + settings.lessonDuration > lunch.start){
+      t = lunch.end;
+      continue;
+    }
+    slots.push(t);
+    t += cadence;
+  }
+  return {slots, lunch};
+}
+/* Osobista przerwa instruktora zaczyna się PO N zajęciach — musi więc być
+   liczona na tej samej siatce godzin co realny grafik dnia (z uwzględnieniem
+   przerw między zajęciami i przerwy obiadowej), a nie przez mnożenie samego
+   czasu trwania zajęć. */
+function personalBreakWindow(instructor, dateIso){
+  if(!instructor || !instructor.breakEnabled) return null;
+  const {slots} = generateDaySlots(dateIso);
+  const after = Math.max(1, instructor.breakAfterLessons||3);
+  if(slots.length <= after) return null;
+  const start = slots[after - 1] + settings.lessonDuration;
+  return {start, end: start + (instructor.breakDuration||15)};
+}
 function todayISO(){const d=new Date();return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;}
 function showToast(msg){
   const t = document.getElementById('toast');
@@ -739,11 +832,16 @@ function avatarColor(name){
   return AVATAR_PALETTE[h];
 }
 function avatarHtml(name){
-  return `<span class="avatar" style="background:${avatarColor(name)}">${initials(name)}</span>`;
+  return `<span class="avatar" style="background:${avatarColor(name)}">${esc(initials(name))}</span>`;
 }
 function lessonPrice(l){
   return l.clientPrice||0; // stored as the final total price for the booking
 }
+/* Czas trwania zapisany przy zajęciach — dzięki temu zmiana ustawień
+   (np. z 55 na 90 min) nie przepisuje wstecz historycznych statystyk.
+   Starsze zapisy bez tego pola korzystają z aktualnego ustawienia. */
+function lessonMinutes(l){ return l.durationMinutes || settings.lessonDuration; }
+function sumHours(list){ return list.reduce((s,l)=>s+lessonMinutes(l),0)/60; }
 function statusBadge(status){
   const map = {
     planned:  {c:'#4A90D9', label:'Zaplanowane'},
@@ -851,22 +949,45 @@ window.saveSettings = async function(){
   const lunchBreakEnabled = document.getElementById('set-lunch-enabled').classList.contains('on');
   const lunchBreakStart = document.getElementById('set-lunch-start').value || '13:00';
   const lunchBreakDuration = Math.max(0, Number(document.getElementById('set-lunch-duration').value)||0);
+  const lunchBreakOverrides = {};
+  for(let dow=0; dow<7; dow++){
+    const sw = document.getElementById(`lunch-ov-${dow}-switch`);
+    if(sw && sw.classList.contains('on')){
+      lunchBreakOverrides[dow] = {
+        enabled: true,
+        start: document.getElementById(`lunch-ov-${dow}-start`).value || lunchBreakStart,
+        duration: Math.max(0, Number(document.getElementById(`lunch-ov-${dow}-duration`).value)||30)
+      };
+    }
+  }
   settings = {...settings, basePrice, lessonDuration, dayStart, dayEnd, smsWebhookUrl, instructorRateDefault,
-    breakBetweenLessons, lunchBreakEnabled, lunchBreakStart, lunchBreakDuration};
+    breakBetweenLessons, lunchBreakEnabled, lunchBreakStart, lunchBreakDuration, lunchBreakOverrides};
   await setDoc(doc(db,'settings','general'), settings, {merge:true});
   showToast('Ustawienia zapisane');
   renderPage();
 };
 
 /* ============ LIVE DATA ============ */
+/* Dane z Firebase napływają na żywo, więc pełne przerysowanie strony w trakcie
+   pisania kasowałoby zawartość i kursor w polu wyszukiwarki. Dlatego przy
+   otwartej zakładce Uczniowie odświeżamy tylko samą listę, a jeśli użytkownik
+   właśnie pisze w wyszukiwarce — odkładamy przerysowanie. */
+function safeRerender(){
+  const active = document.activeElement;
+  if(active && active.id==='student-search'){
+    if(currentPage==='uczniowie') renderStudentsList();
+    return;
+  }
+  renderPage();
+}
 function subscribeInstructors(){
   if(unsubUsers) unsubUsers();
   unsubUsers = onSnapshot(query(collection(db,'users'), where('role','==','instructor')), (qs)=>{
     instructors = [];
     qs.forEach(d=>instructors.push({uid:d.id, ...d.data()}));
     instructors.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-    renderPage();
-  });
+    safeRerender();
+  }, (err)=>showToast('Błąd połączenia z bazą (instruktorzy)'));
 }
 function subscribeLessons(){
   if(unsubLessons) unsubLessons();
@@ -874,8 +995,8 @@ function subscribeLessons(){
     lessons = [];
     qs.forEach(d=>lessons.push({id:d.id, status:'planned', lessonType:'individual', groupSize:1, paymentStatus:'unpaid', notes:'', ...d.data()}));
     lessons.sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time));
-    renderPage();
-  });
+    safeRerender();
+  }, (err)=>showToast('Błąd połączenia z bazą (zajęcia)'));
 }
 function subscribeStudents(){
   if(unsubStudents) unsubStudents();
@@ -883,7 +1004,7 @@ function subscribeStudents(){
     studentNotes = {};
     qs.forEach(d=>studentNotes[d.id] = d.data());
     if(currentPage==='uczniowie') renderStudentsList();
-  });
+  }, (err)=>showToast('Błąd połączenia z bazą (opisy uczniów)'));
 }
 function subscribeAbsences(){
   if(unsubAbsences) unsubAbsences();
@@ -891,8 +1012,8 @@ function subscribeAbsences(){
     absences = [];
     qs.forEach(d=>absences.push({id:d.id, ...d.data()}));
     absences.sort((a,b)=>a.date.localeCompare(b.date));
-    renderPage();
-  });
+    safeRerender();
+  }, (err)=>showToast('Błąd połączenia z bazą (nieobecności)'));
 }
 function absencesFor(instructorId, dateIso){
   return absences.filter(a=>a.instructorId===instructorId && a.date===dateIso);
@@ -923,7 +1044,7 @@ function renderAbsenceModalContent(){
   const content = document.getElementById('absence-modal-content');
   content.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
-      <h3 style="font-size:21px;">🚫 Nieobecność — ${name}</h3>
+      <h3 style="font-size:21px;">🚫 Nieobecność — ${esc(name)}</h3>
       <button class="wizard-close" style="font-size:24px;" onclick="closeAbsenceModal()">✕</button>
     </div>
     <div class="field"><label>Data</label><input type="date" id="ab-date" value="${todayISO()}"></div>
@@ -942,7 +1063,7 @@ function renderAbsenceModalContent(){
       <div class="opt-label">Zgłoszone nieobecności (nadchodzące)</div>
       ${upcoming.length===0 ? `<div style="color:var(--mist-dim);font-size:13.5px;">Brak zgłoszonych nieobecności.</div>` :
         upcoming.map(a=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--navy-3);font-size:13.5px;gap:10px;">
-          <div><b>${fmtDatePL(a.date)}</b> — ${a.allDay ? 'cały dzień' : `${a.startTime}–${a.endTime}`}${a.reason?` <span style="color:var(--mist-dim);">(${a.reason})</span>`:''}</div>
+          <div><b>${fmtDatePL(a.date)}</b> — ${a.allDay ? 'cały dzień' : `${a.startTime}–${a.endTime}`}${a.reason?` <span style="color:var(--mist-dim);">(${esc(a.reason)})</span>`:''}</div>
           <button class="icon-btn danger" onclick="deleteAbsence('${a.id}')">Usuń</button>
         </div>`).join('')}
     </div>
@@ -1052,7 +1173,7 @@ function renderCalendarPage(main){
       <div class="card">
         <h3>${fmtDatePL(calSelectedDate)}</h3>
         ${dayAbsences.length>0 ? `<div style="background:rgba(230,57,70,0.1);border:1px solid rgba(230,57,70,0.35);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13.5px;">
-          ${dayAbsences.map(a=>`🚫 <b>${a.instructorName}</b> — nieobecny(a) ${a.allDay?'cały dzień':`${a.startTime}–${a.endTime}`}${a.reason?` <span style="color:var(--mist-dim);">(${a.reason})</span>`:''}`).join('<br>')}
+          ${dayAbsences.map(a=>`🚫 <b>${esc(a.instructorName)}</b> — nieobecny(a) ${a.allDay?'cały dzień':`${a.startTime}–${a.endTime}`}${a.reason?` <span style="color:var(--mist-dim);">(${esc(a.reason)})</span>`:''}`).join('<br>')}
         </div>` : ''}
         <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--mist-dim);margin-bottom:12px;">
           <span><span class="pay-toggle paid" style="pointer-events:none;">✓</span> zapłacone</span>
@@ -1071,23 +1192,25 @@ function renderDayScheduleGrid(dateIso){
     return `<div class="empty-state"><b>Brak instruktorów</b>Dodaj instruktorów w zakładce Instruktorzy, żeby zobaczyć grafik dnia.</div>`;
   }
   const dayLessons = lessons.filter(l=>l.date===dateIso && l.status!=='cancelled');
-  const dayStartMin = settings.dayStart*60, dayEndMin = settings.dayEnd*60;
-  const cadence = settings.lessonDuration + (settings.breakBetweenLessons||0);
-  let lunchStartMin=null, lunchEndMin=null;
-  if(settings.lunchBreakEnabled){
-    lunchStartMin = toMinutes(settings.lunchBreakStart||'13:00');
-    lunchEndMin = lunchStartMin + (settings.lunchBreakDuration||30);
-  }
-  const rowTimes = [];
-  for(let t=dayStartMin; t+settings.lessonDuration<=dayEndMin; t+=cadence) rowTimes.push(t);
+  const {slots, lunch} = generateDaySlots(dateIso);
 
-  let html = `<div class="table-wrap"><table><thead><tr><th>Godz.</th>${instructors.map(i=>`<th>${i.name}</th>`).join('')}</tr></thead><tbody>`;
-  rowTimes.forEach(t=>{
-    const time = fromMinutes(t);
-    if(lunchStartMin!==null && t>=lunchStartMin && t<lunchEndMin){
-      html += `<tr><td colspan="${instructors.length+1}" style="text-align:center;color:var(--mist-dim);font-size:12.5px;background:rgba(255,255,255,0.02);">🍽️ Przerwa obiadowa — ${time}</td></tr>`;
+  // build display rows: booking slots plus a synthetic lunch-break marker
+  // inserted at its correct chronological position
+  const rows = slots.map(t=>({type:'slot', t}));
+  if(lunch){
+    let idx = rows.findIndex(r=>r.t >= lunch.end);
+    if(idx===-1) idx = rows.length;
+    rows.splice(idx, 0, {type:'lunch'});
+  }
+
+  let html = `<div class="table-wrap"><table><thead><tr><th>Godz.</th>${instructors.map(i=>`<th>${esc(i.name)}</th>`).join('')}</tr></thead><tbody>`;
+  rows.forEach(row=>{
+    if(row.type==='lunch'){
+      html += `<tr><td colspan="${instructors.length+1}" style="text-align:center;color:var(--mist-dim);font-size:12.5px;background:rgba(255,255,255,0.02);">🍽️ Przerwa obiadowa — ${fromMinutes(lunch.start)}–${fromMinutes(lunch.end)}</td></tr>`;
       return;
     }
+    const t = row.t;
+    const time = fromMinutes(t);
     html += `<tr><td><b>${time}</b></td>`;
     instructors.forEach(ins=>{
       const lesson = dayLessons.find(l=>l.time===time && l.instructorId===ins.uid);
@@ -1096,7 +1219,7 @@ function renderDayScheduleGrid(dateIso){
         const canManage = currentUser.role==='operator' || currentUser.canManageAll || lesson.instructorId===currentUser.uid;
         html += `<td>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-            <span ${canManage?`onclick="openLessonEdit('${lesson.id}')" style="cursor:pointer;"`:''}><span class="dot" style="background:${cssColor(lv.key)}"></span> <b style="font-size:13px;">${lesson.studentName}</b>${lesson.lessonType==='group'?' 👥':''}</span>
+            <span ${canManage?`onclick="openLessonEdit('${lesson.id}')" style="cursor:pointer;"`:''}><span class="dot" style="background:${cssColor(lv.key)}"></span> <b style="font-size:13px;">${esc(lesson.studentName)}</b>${lesson.lessonType==='group'?' 👥':''}</span>
             ${canManage ? `<button class="pay-toggle ${lesson.paymentStatus==='paid'?'paid':''}" onclick="toggleLessonPayment('${lesson.id}')" title="${lesson.paymentStatus==='paid'?'Zapłacono — dotknij, aby cofnąć':'Do zapłaty — dotknij, aby oznaczyć jako zapłacone'}">${lesson.paymentStatus==='paid'?'✓':'zł'}</button>` : paymentBadge(lesson.paymentStatus)}
           </div>
         </td>`;
@@ -1104,11 +1227,8 @@ function renderDayScheduleGrid(dateIso){
         const absentAll = isAllDayAbsent(ins.uid, dateIso);
         const inAbsencePartial = !absentAll && absenceBlocksMinutes(ins.uid, dateIso, t);
         let inPersonalBreak = false;
-        if(ins.breakEnabled){
-          const bs = dayStartMin + (ins.breakAfterLessons||3) * settings.lessonDuration;
-          const be = bs + (ins.breakDuration||15);
-          inPersonalBreak = t>=bs && t<be;
-        }
+        const pb = personalBreakWindow(ins, dateIso);
+        if(pb) inPersonalBreak = t < pb.end && t + settings.lessonDuration > pb.start;
         if(absentAll || inAbsencePartial) html += `<td style="text-align:center;color:var(--mist-dim);">🚫</td>`;
         else if(inPersonalBreak) html += `<td style="text-align:center;color:var(--mist-dim);">☕</td>`;
         else html += `<td style="text-align:center;color:var(--navy-4);">—</td>`;
@@ -1186,7 +1306,7 @@ function renderLessonEditModal(){
   const canManage = currentUser.role==='operator' || currentUser.canManageAll || l.instructorId===currentUser.uid;
   content.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
-      <div><h3 style="font-size:20px;">${l.studentName}</h3><div style="color:var(--mist-dim);font-size:13px;">${l.studentPhone}</div></div>
+      <div><h3 style="font-size:20px;">${esc(l.studentName)}</h3><div style="color:var(--mist-dim);font-size:13px;">${esc(l.studentPhone)}</div></div>
       <button class="wizard-close" style="font-size:22px;" onclick="closeLessonEditModal()">✕</button>
     </div>
     <div class="grid grid-2">
@@ -1196,9 +1316,9 @@ function renderLessonEditModal(){
     ${currentUser.role==='operator' ? `
     <div class="field"><label>Instruktor</label>
       <select id="le-instructor" ${canManage?'':'disabled'}>
-        ${instructors.map(i=>`<option value="${i.uid}" data-name="${i.name.replace(/"/g,'&quot;')}" ${l.instructorId===i.uid?'selected':''}>${i.name}</option>`).join('')}
+        ${instructors.map(i=>`<option value="${i.uid}" data-name="${esc(i.name)}" ${l.instructorId===i.uid?'selected':''}>${esc(i.name)}</option>`).join('')}
       </select>
-    </div>` : `<div class="field"><label>Instruktor</label><input value="${l.instructorName}" disabled></div>`}
+    </div>` : `<div class="field"><label>Instruktor</label><input value="${esc(l.instructorName)}" disabled></div>`}
 
     <div class="opt-label">Płatność</div>
     <div class="choice-row">
@@ -1263,11 +1383,22 @@ window.deleteLessonFromEdit = async function(){
 };
 
 /* ============ STUDENTS PAGE (operator + instructor) ============ */
+/* Uczniowie są identyfikowani po telefonie ORAZ imieniu — rodzic często
+   zapisuje dwoje dzieci na swój numer, więc sam telefon scalałby rodzeństwo
+   w jednego kursanta (i dawałby im wspólny opis). */
+function studentKey(name, phone){
+  return `${String(phone||'').trim()}|${String(name||'').trim().toLowerCase()}`;
+}
+/* Firestore nie pozwala na "/" w ID dokumentu i źle znosi znaki specjalne,
+   więc klucz ucznia kodujemy do bezpiecznej postaci. */
+function studentDocId(key){
+  return encodeURIComponent(key).replace(/\./g,'%2E');
+}
 function buildStudentsMap(){
   const map = new Map();
   lessons.forEach(l=>{
-    const k = l.studentPhone;
-    if(!map.has(k)) map.set(k, {name:l.studentName, phone:l.studentPhone, count:0, lastDate:l.date, level:l.level, paymentStatus:l.paymentStatus});
+    const k = studentKey(l.studentName, l.studentPhone);
+    if(!map.has(k)) map.set(k, {key:k, name:l.studentName, phone:l.studentPhone, count:0, lastDate:l.date, level:l.level, paymentStatus:l.paymentStatus});
     const s = map.get(k);
     s.count++;
     if(l.date >= s.lastDate){ s.lastDate = l.date; s.level = l.level; s.paymentStatus = l.paymentStatus; }
@@ -1308,16 +1439,16 @@ function renderStudentsList(){
   container.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Imię</th><th>Telefon</th><th>Ostatni poziom</th><th>Zajęcia</th><th>Ostatnio</th><th>Płatność</th><th>Opis</th><th></th></tr></thead><tbody>
     ${list.map(s=>{
       const lv = levelMeta(s.level);
-      const hasNote = !!(studentNotes[s.phone]?.notes);
+      const hasNote = !!(studentNotes[studentDocId(s.key)]?.notes);
       return `<tr>
-        <td class="name-cell">${avatarHtml(s.name)}<b>${s.name}</b></td>
-        <td>${s.phone}</td>
+        <td class="name-cell">${avatarHtml(s.name)}<b>${esc(s.name)}</b></td>
+        <td>${esc(s.phone)}</td>
         <td><span class="badge" style="background:${cssColor(lv.key)}22;color:${cssColor(lv.key)};"><span class="dot" style="background:${cssColor(lv.key)}"></span>${lv.n} — ${lv.label}</span></td>
         <td>${s.count}</td>
         <td>${fmtDatePL(s.lastDate)}</td>
         <td>${paymentBadge(s.paymentStatus)}</td>
         <td>${hasNote ? '<span class="badge" style="background:#9B5DE522;color:#9B5DE5;">Jest opis</span>' : '<span style="color:var(--mist-dim);font-size:12.5px;">—</span>'}</td>
-        <td><button class="icon-btn" onclick="openStudentDetail('${s.phone}')">Historia</button></td>
+        <td><button class="icon-btn" onclick="openStudentDetail('${escAttr(s.name)}','${escAttr(s.phone)}')">Historia</button></td>
       </tr>`;
     }).join('')}
     </tbody></table></div>`;
@@ -1328,43 +1459,45 @@ window.onStudentSearchInput = function(el){
 };
 
 /* --- Student detail modal: full lesson history + persistent instructor note --- */
-window.openStudentDetail = function(phone){
-  const studentLessons = lessons.filter(l=>l.studentPhone===phone).sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
-  const latest = studentLessons[0];
-  const name = latest ? latest.studentName : phone;
-  const existingNote = studentNotes[phone] || {};
+window.openStudentDetail = function(name, phone){
+  const key = studentKey(name, phone);
+  const studentLessons = lessons
+    .filter(l=>studentKey(l.studentName, l.studentPhone)===key)
+    .sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
+  const existingNote = studentNotes[studentDocId(key)] || {};
   const content = document.getElementById('student-modal-content');
   content.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:18px;">
-      <div class="name-cell">${avatarHtml(name)}<div><h3 style="font-size:22px;">${name}</h3><div style="color:var(--mist-dim);font-size:13px;">${phone}</div></div></div>
+      <div class="name-cell">${avatarHtml(name)}<div><h3 style="font-size:22px;">${esc(name)}</h3><div style="color:var(--mist-dim);font-size:13px;">${esc(phone)}</div></div></div>
       <button class="wizard-close" style="font-size:24px;" onclick="closeStudentModal()">✕</button>
     </div>
 
     <div class="field">
-      <label>Opis ucznia ${existingNote.updatedByName ? `<span style="text-transform:none;letter-spacing:0;color:var(--mist-dim);">— ostatnio: ${existingNote.updatedByName}</span>` : ''}</label>
-      <textarea id="student-notes-input" rows="3" placeholder="Charakter, tempo nauki, obawy, ulubiony sprzęt, na co uważać…">${existingNote.notes||''}</textarea>
+      <label>Opis ucznia ${existingNote.updatedByName ? `<span style="text-transform:none;letter-spacing:0;color:var(--mist-dim);">— ostatnio: ${esc(existingNote.updatedByName)}</span>` : ''}</label>
+      <textarea id="student-notes-input" rows="3" placeholder="Charakter, tempo nauki, obawy, ulubiony sprzęt, na co uważać…">${esc(existingNote.notes||'')}</textarea>
     </div>
-    <button class="btn btn-primary" style="margin-bottom:22px;" onclick="saveStudentNotes('${phone}')">Zapisz opis</button>
+    <button class="btn btn-primary" style="margin-bottom:22px;" onclick="saveStudentNotes('${escAttr(name)}','${escAttr(phone)}')">Zapisz opis</button>
 
     <h3 style="font-size:17px;margin-bottom:10px;">Historia nauki (${studentLessons.length})</h3>
     ${studentLessons.length===0 ? `<div class="empty-state" style="padding:20px;"><b>Brak zajęć</b></div>` :
     `<div class="table-wrap"><table><thead><tr><th>Data</th><th>Godz.</th><th>Instruktor</th><th>Poziom</th><th>Status</th><th>Uwagi z zajęć</th></tr></thead><tbody>
       ${studentLessons.map(l=>{
         const lv = levelMeta(l.level);
-        return `<tr><td>${fmtDatePL(l.date)}</td><td>${l.time}</td><td>${l.instructorName}</td>
+        return `<tr><td>${fmtDatePL(l.date)}</td><td>${l.time}</td><td>${esc(l.instructorName)}</td>
         <td><span class="badge" style="background:${cssColor(lv.key)}22;color:${cssColor(lv.key)};">${lv.n}</span></td>
-        <td>${statusBadge(l.status)}</td><td style="max-width:220px;">${l.notes ? l.notes : '<span style="color:var(--mist-dim);">—</span>'}</td></tr>`;
+        <td>${statusBadge(l.status)}</td><td style="max-width:220px;">${l.notes ? esc(l.notes) : '<span style="color:var(--mist-dim);">—</span>'}</td></tr>`;
       }).join('')}
     </tbody></table></div>`}
   `;
   document.getElementById('student-modal-backdrop').classList.add('active');
 };
 window.closeStudentModal = function(){ document.getElementById('student-modal-backdrop').classList.remove('active'); };
-window.saveStudentNotes = async function(phone){
+window.saveStudentNotes = async function(name, phone){
   const val = document.getElementById('student-notes-input').value.trim();
   try{
-    await setDoc(doc(db,'students',phone), {
-      notes: val, updatedBy: currentUser.uid, updatedByName: currentUser.name, updatedAt: serverTimestamp()
+    await setDoc(doc(db,'students',studentDocId(studentKey(name, phone))), {
+      notes: val, studentName: name, studentPhone: phone,
+      updatedBy: currentUser.uid, updatedByName: currentUser.name, updatedAt: serverTimestamp()
     }, {merge:true});
     showToast('Opis ucznia zapisany');
   }catch(e){
@@ -1381,12 +1514,12 @@ function renderInstructorsPage(main){
       ${instructors.length===0 ? `<div class="empty-state"><b>Brak instruktorów</b>Dodaj pierwsze konto instruktorskie.</div>` :
       `<div class="table-wrap"><table><thead><tr><th>Imię</th><th>E-mail</th><th>Stawka</th><th>Uprawnienia</th><th></th></tr></thead><tbody>
       ${instructors.map(i=>`<tr>
-        <td class="name-cell">${avatarHtml(i.name)}<b>${i.name}</b></td>
-        <td><span class="truncate" title="${i.email}">${i.email}</span></td>
+        <td class="name-cell">${avatarHtml(i.name)}<b>${esc(i.name)}</b></td>
+        <td><span class="truncate" title="${esc(i.email)}">${esc(i.email)}</span></td>
         <td>${fmtMoney(i.pricePerLesson)}</td>
         <td>${i.canManageAll ? '<span class="badge" style="background:#2FA84F22;color:#2FA84F;">Zarządza wszystkim</span>' : '<span class="badge" style="background:#8FA4B822;color:#8FA4B8;">Tylko swoje</span>'}</td>
         <td><div class="actions-cell"><button class="icon-btn" onclick="openInstructorModal('${i.uid}')">Edytuj</button>
-        <button class="icon-btn" onclick="openAbsenceModal('${i.uid}','${i.name.replace(/'/g,"\\'")}')">🚫 Nieobecność</button>
+        <button class="icon-btn" onclick="openAbsenceModal('${i.uid}','${escAttr(i.name)}')">🚫 Nieobecność</button>
         <button class="icon-btn danger" onclick="removeInstructor('${i.uid}')">Usuń</button></div></td>
       </tr>`).join('')}
       </tbody></table></div>`}
@@ -1435,27 +1568,48 @@ window.saveInstructor = async function(){
       if(!email || pass.length<6){ showToast('Podaj e-mail i hasło (min. 6 znaków)'); btn.disabled=false; return; }
       // secondary app instance so the operator's own session isn't replaced
       const secondaryApp = initializeApp(firebaseConfig, 'Secondary-'+Date.now());
-      const secondaryAuth = getAuth(secondaryApp);
-      const cred = await createUserWithEmailAndPassword(secondaryAuth, email, pass);
-      await setDoc(doc(db,'users',cred.user.uid), {
-        role:'instructor', name, email, pricePerLesson:price, canManageAll, maxHoursPerDay, breakEnabled, breakAfterLessons, breakDuration, createdAt: serverTimestamp()
-      });
-      await signOut(secondaryAuth);
-      await deleteApp(secondaryApp);
-      showToast('Konto instruktora utworzone');
+      try{
+        const secondaryAuth = getAuth(secondaryApp);
+        const cred = await createUserWithEmailAndPassword(secondaryAuth, email, pass);
+        await setDoc(doc(db,'users',cred.user.uid), {
+          role:'instructor', name, email, pricePerLesson:price, canManageAll, maxHoursPerDay, breakEnabled, breakAfterLessons, breakDuration, createdAt: serverTimestamp()
+        });
+        await signOut(secondaryAuth);
+        showToast('Konto instruktora utworzone');
+      } finally {
+        // sprzątamy tymczasową instancję ZAWSZE, także gdy zakładanie konta padło
+        await deleteApp(secondaryApp).catch(()=>{});
+      }
     }
     closeInstructorModal();
   }catch(e){
-    showToast('Błąd: '+(e.message||'nie udało się zapisać'));
+    const code = e?.code || '';
+    const msg = code==='auth/email-already-in-use' ? 'Ten e-mail jest już zajęty przez inne konto.'
+              : code==='auth/invalid-email' ? 'Nieprawidłowy adres e-mail.'
+              : code==='auth/weak-password' ? 'Hasło jest za słabe (min. 6 znaków).'
+              : (e?.message || 'nie udało się zapisać');
+    showToast('Błąd: '+msg);
   }finally{
     btn.disabled = false;
   }
 };
 
 window.removeInstructor = async function(uid){
-  if(!confirm('Usunąć profil tego instruktora? (Konto logowania trzeba osobno usunąć w konsoli Firebase Authentication)')) return;
-  await deleteDoc(doc(db,'users',uid));
-  showToast('Profil usunięty');
+  const future = lessons.filter(l=>l.instructorId===uid && l.date>=todayISO() && l.status!=='cancelled');
+  const warn = future.length>0
+    ? `\n\nUWAGA: ten instruktor ma ${future.length} nadchodzących zajęć — zostaną w grafiku, ale trzeba je ręcznie przepisać na kogoś innego.`
+    : '';
+  if(!confirm(`Usunąć profil tego instruktora?${warn}\n\n(Konto logowania trzeba osobno usunąć w konsoli Firebase Authentication)`)) return;
+  try{
+    // usuwamy też zgłoszone przez niego nieobecności, żeby nie zostawały
+    // osierocone wpisy blokujące terminy w grafiku
+    const theirAbsences = absences.filter(a=>a.instructorId===uid);
+    await Promise.all(theirAbsences.map(a=>deleteDoc(doc(db,'absences',a.id))));
+    await deleteDoc(doc(db,'users',uid));
+    showToast('Profil usunięty');
+  }catch(e){
+    showToast('Błąd usuwania profilu');
+  }
 };
 
 /* ============ STATS PAGE (operator) ============ */
@@ -1465,14 +1619,15 @@ function renderStatsPage(main){
   const monthLessons = lessons.filter(l=>l.date.startsWith(monthStr) && l.status!=='cancelled');
   const totalRevenue = monthLessons.reduce((s,l)=>s+lessonPrice(l),0);
   const totalPayout = monthLessons.reduce((s,l)=>s+(l.instructorPay||0),0);
-  const totalHours = (monthLessons.length * settings.lessonDuration/60);
+  const totalHours = sumHours(monthLessons);
   const unpaid = monthLessons.filter(l=>l.paymentStatus!=='paid').reduce((s,l)=>s+lessonPrice(l),0);
 
   const byInstructor = {};
   monthLessons.forEach(l=>{
-    if(!byInstructor[l.instructorId]) byInstructor[l.instructorId] = {name:l.instructorName, count:0, payout:0};
+    if(!byInstructor[l.instructorId]) byInstructor[l.instructorId] = {name:l.instructorName, count:0, payout:0, minutes:0};
     byInstructor[l.instructorId].count++;
     byInstructor[l.instructorId].payout += (l.instructorPay||0);
+    byInstructor[l.instructorId].minutes += lessonMinutes(l);
   });
   const rows = Object.values(byInstructor).sort((a,b)=>b.count-a.count);
 
@@ -1489,7 +1644,7 @@ function renderStatsPage(main){
       <h3>Instruktorzy w tym miesiącu</h3>
       ${rows.length===0 ? `<div class="empty-state"><b>Brak danych</b>Jeszcze żadnych zajęć w tym miesiącu.</div>` :
       `<div class="table-wrap"><table><thead><tr><th>Instruktor</th><th>Zajęcia</th><th>Godziny</th><th>Wypłata</th></tr></thead><tbody>
-      ${rows.map(r=>`<tr><td class="name-cell">${avatarHtml(r.name)}<b>${r.name}</b></td><td>${r.count}</td><td>${(r.count*settings.lessonDuration/60).toFixed(1)}h</td><td>${fmtMoney(r.payout)}</td></tr>`).join('')}
+      ${rows.map(r=>`<tr><td class="name-cell">${avatarHtml(r.name)}<b>${esc(r.name)}</b></td><td>${r.count}</td><td>${(r.minutes/60).toFixed(1)}h</td><td>${fmtMoney(r.payout)}</td></tr>`).join('')}
       </tbody></table></div>`}
     </div>
   `;
@@ -1501,15 +1656,18 @@ function renderMyStatsPage(main){
   const now = new Date();
   const monthStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}`;
   const monthMine = mine.filter(l=>l.date.startsWith(monthStr));
-  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-7);
-  const weekMine = mine.filter(l=>new Date(l.date) >= weekAgo);
+  // porównanie na tekstach ISO — new Date('2026-08-22') jest interpretowane
+  // jako północ UTC, co przy polskiej strefie gubiło/dokładało jeden dzień
+  const weekAgoD = new Date(); weekAgoD.setDate(weekAgoD.getDate()-7);
+  const weekAgoIso = `${weekAgoD.getFullYear()}-${pad(weekAgoD.getMonth()+1)}-${pad(weekAgoD.getDate())}`;
+  const weekMine = mine.filter(l=>l.date >= weekAgoIso && l.date <= todayISO());
   const earnings = monthMine.reduce((s,l)=>s+(l.instructorPay||0),0);
   main.innerHTML = `
-    <div class="page-head"><div><div class="page-sub">${currentUser.name}</div><h1>Moje godziny</h1></div></div>
+    <div class="page-head"><div><div class="page-sub">${esc(currentUser.name)}</div><h1>Moje godziny</h1></div></div>
     <div class="stats-grid">
       <div class="stat c-lv2"><div class="num">${weekMine.length}</div><div class="lbl">Zajęcia (7 dni)</div></div>
       <div class="stat c-lv1"><div class="num">${monthMine.length}</div><div class="lbl">Zajęcia w miesiącu</div></div>
-      <div class="stat"><div class="num">${(monthMine.length*settings.lessonDuration/60).toFixed(1)}h</div><div class="lbl">Godziny w miesiącu</div></div>
+      <div class="stat"><div class="num">${sumHours(monthMine).toFixed(1)}h</div><div class="lbl">Godziny w miesiącu</div></div>
       <div class="stat c-lv5"><div class="num">${fmtMoney(earnings)}</div><div class="lbl">Zarobek w miesiącu</div></div>
     </div>
     <div class="card">
@@ -1532,13 +1690,13 @@ function renderMyStatsPage(main){
     <div class="card">
       <h3>Nieobecność</h3>
       <div style="color:var(--mist-dim);font-size:13px;margin-bottom:14px;">Choroba, sprawy losowe — wykreśl się z zajęć na cały dzień lub jego część, żeby te godziny przestały być widoczne jako wolne przy nowych zapisach.</div>
-      <button class="btn btn-outline" onclick="openAbsenceModal('${currentUser.uid}','${(currentUser.name||'').replace(/'/g,"\\'")}')">🚫 Zgłoś nieobecność</button>
+      <button class="btn btn-outline" onclick="openAbsenceModal('${currentUser.uid}','${escAttr(currentUser.name||'')}')">🚫 Zgłoś nieobecność</button>
     </div>
     <div class="card">
       <h3>Ostatnie zajęcia</h3>
       ${mine.length===0 ? `<div class="empty-state"><b>Brak zajęć</b></div>` :
       `<div class="table-wrap"><table><thead><tr><th>Data</th><th>Godz.</th><th>Uczeń</th><th>Poziom</th><th>Status</th><th>Wypłata</th></tr></thead><tbody>
-      ${mine.slice(-15).reverse().map(l=>{const lv=levelMeta(l.level);return `<tr><td>${fmtDatePL(l.date)}</td><td>${l.time}</td><td>${l.studentName}</td>
+      ${mine.slice(-15).reverse().map(l=>{const lv=levelMeta(l.level);return `<tr><td>${fmtDatePL(l.date)}</td><td>${l.time}</td><td>${esc(l.studentName)}</td>
       <td><span class="badge" style="background:${cssColor(lv.key)}22;color:${cssColor(lv.key)};">${lv.n}</span></td><td>${statusBadge(l.status)}</td><td>${fmtMoney(l.instructorPay)}</td></tr>`}).join('')}
       </tbody></table></div>`}
     </div>
@@ -1569,7 +1727,7 @@ function renderRemindersPage(main){
       <h3>Jutro (${fmtDatePL(tmrIso)}) — ${tmrLessons.length} zajęć</h3>
       ${tmrLessons.length===0 ? `<div class="empty-state"><b>Brak zajęć jutro</b>Nie ma czego przypominać.</div>` : `
       <div class="table-wrap"><table><thead><tr><th>Godz.</th><th>Uczeń</th><th>Telefon</th><th>Instruktor</th><th>Status</th></tr></thead><tbody>
-      ${tmrLessons.map(l=>`<tr><td><b>${l.time}</b></td><td>${l.studentName}</td><td>${l.studentPhone}</td><td>${l.instructorName}</td>
+      ${tmrLessons.map(l=>`<tr><td><b>${l.time}</b></td><td>${esc(l.studentName)}</td><td>${esc(l.studentPhone)}</td><td>${esc(l.instructorName)}</td>
       <td>${l.reminderSent ? '<span class="badge" style="background:#2FA84F22;color:#2FA84F;">Wysłano</span>' : '<span class="badge" style="background:#8FA4B822;color:#8FA4B8;">Oczekuje</span>'}</td></tr>`).join('')}
       </tbody></table></div>
       <button class="btn btn-gold" style="margin-top:16px;" onclick="approveReminders('${tmrIso}')">✓ Zatwierdź i wyślij SMS-y (${tmrLessons.filter(l=>!l.reminderSent).length})</button>
@@ -1586,19 +1744,58 @@ window.approveReminders = async function(dateIso){
     return;
   }
   try{
-    await fetch(settings.smsWebhookUrl, {
+    const res = await fetch(settings.smsWebhookUrl, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({lessons: toSend.map(l=>({id:l.id, phone:l.studentPhone, name:l.studentName, time:l.time, date:l.date, instructor:l.instructorName}))})
     });
-    await Promise.all(toSend.map(l=>updateDoc(doc(db,'lessons',l.id), {reminderSent:true})));
-    showToast('SMS-y wysłane');
+    if(!res.ok){
+      showToast(`Bramka SMS zwróciła błąd (${res.status}) — nic nie oznaczono jako wysłane`);
+      return;
+    }
+    // Jeśli bramka zwraca wynik per zajęcia, oznaczamy tylko te faktycznie wysłane.
+    let okIds = toSend.map(l=>l.id);
+    try{
+      const data = await res.json();
+      if(Array.isArray(data?.results)){
+        okIds = data.results.filter(r=>r.ok).map(r=>r.id);
+      }
+    }catch(_){ /* bramka nie zwróciła JSON-a — zakładamy, że całość poszła */ }
+
+    if(okIds.length===0){
+      showToast('Bramka SMS nie wysłała żadnej wiadomości');
+      return;
+    }
+    await Promise.all(okIds.map(id=>updateDoc(doc(db,'lessons',id), {reminderSent:true})));
+    showToast(okIds.length===toSend.length
+      ? `Wysłano ${okIds.length} SMS-ów`
+      : `Wysłano ${okIds.length} z ${toSend.length} — reszta nieudana`);
   }catch(e){
     showToast('Błąd wysyłki: sprawdź adres bramki SMS');
   }
 };
 
 /* ============ SETTINGS PAGE (operator) ============ */
+function renderLunchOverrideRow(dow, label){
+  const ov = settings.lunchBreakOverrides && settings.lunchBreakOverrides[dow];
+  const active = !!ov;
+  return `<div class="card" style="padding:12px 14px;margin-bottom:8px;box-shadow:none;">
+    <div class="switch-row">
+      <div><b style="font-size:14px;">${esc(label)}</b></div>
+      <div class="switch ${active?'on':''}" id="lunch-ov-${dow}-switch" onclick="toggleLunchOverride(${dow})"><div class="knob"></div></div>
+    </div>
+    <div id="lunch-ov-${dow}-fields" style="display:${active?'flex':'none'};gap:10px;margin-top:8px;">
+      <div class="field" style="flex:1;margin-bottom:0;"><label>Godzina</label><input type="time" id="lunch-ov-${dow}-start" value="${ov?ov.start:settings.lunchBreakStart}"></div>
+      <div class="field" style="flex:1;margin-bottom:0;"><label>Długość (min)</label><input type="number" min="5" max="120" step="5" id="lunch-ov-${dow}-duration" value="${ov?ov.duration:settings.lunchBreakDuration}"></div>
+    </div>
+  </div>`;
+}
+window.toggleLunchOverride = function(dow){
+  const sw = document.getElementById(`lunch-ov-${dow}-switch`);
+  sw.classList.toggle('on');
+  document.getElementById(`lunch-ov-${dow}-fields`).style.display = sw.classList.contains('on') ? 'flex' : 'none';
+};
+
 function renderSettingsPage(main){
   const durationPresets = [45, 50, 55, 60, 90];
   main.innerHTML = `
@@ -1626,7 +1823,7 @@ function renderSettingsPage(main){
       </div>
       <div style="color:var(--mist-dim);font-size:12.5px;margin-top:-6px;margin-bottom:14px;">Domyślnie: 55 min zajęć + 5 min przerwy = kolejne zajęcia zaczynają się co 60 min. Zmień w wyjątkowych sytuacjach.</div>
 
-      <div class="opt-label">Przerwa obiadowa</div>
+      <div class="opt-label">Przerwa obiadowa (domyślna)</div>
       <div class="switch-row" style="max-width:340px;">
         <div><b style="font-size:14.5px;">Włączona</b></div>
         <div class="switch ${settings.lunchBreakEnabled?'on':''}" id="set-lunch-enabled" onclick="this.classList.toggle('on')"><div class="knob"></div></div>
@@ -1634,6 +1831,12 @@ function renderSettingsPage(main){
       <div class="grid grid-2" style="max-width:340px;margin-top:8px;">
         <div class="field"><label>Godzina rozpoczęcia</label><input type="time" id="set-lunch-start" value="${settings.lunchBreakStart}"></div>
         <div class="field"><label>Długość (min)</label><input type="number" min="5" max="120" step="5" id="set-lunch-duration" value="${settings.lunchBreakDuration}"></div>
+      </div>
+      <div style="color:var(--mist-dim);font-size:12.5px;margin-top:6px;">Po przerwie kolejne zajęcia zaczynają się od razu po jej zakończeniu — reszta dnia przesuwa się automatycznie.</div>
+
+      <div class="opt-label" style="margin-top:18px;">Inna przerwa w wybrane dni tygodnia (opcjonalnie)</div>
+      <div id="lunch-day-overrides">
+        ${WEEKDAY_LABELS.map((label,dow)=>renderLunchOverrideRow(dow,label)).join('')}
       </div>
 
       <button class="btn btn-primary" onclick="saveSettings()">Zapisz ustawienia</button>
@@ -1744,24 +1947,14 @@ function renderWizardStep(){
     if(needInstructorPick){
       instrHtml = `<div class="instr-pick">${instructors.map(i=>{
         const absent = isAllDayAbsent(i.uid, wData.date);
-        return `<div class="instr-chip ${wData.instructorId===i.uid?'selected':''}" onclick="pickInstructor('${i.uid}','${i.name.replace(/'/g,"\\'")}')">${absent?'🚫 ':''}${i.name}</div>`;
+        return `<div class="instr-chip ${wData.instructorId===i.uid?'selected':''}" onclick="pickInstructor('${i.uid}','${escAttr(i.name)}')">${absent?'🚫 ':''}${esc(i.name)}</div>`;
       }).join('') || '<div style="color:var(--mist-dim);font-size:13px;">Brak instruktorów — dodaj ich w panelu Instruktorzy.</div>'}</div>`;
     }
 
-    // continuous slots spaced by lessonDuration + przerwa między zajęciami (domyślnie 55 + 5 = co 60 min)
-    const dayStartMin = settings.dayStart*60, dayEndMin = settings.dayEnd*60;
-    const cadence = settings.lessonDuration + (settings.breakBetweenLessons||0);
-    const slots = [];
-    for(let t=dayStartMin; t+settings.lessonDuration<=dayEndMin; t+=cadence){
-      slots.push({time:fromMinutes(t), minutes:t});
-    }
-
-    // globalna przerwa obiadowa
-    let lunchStartMin=null, lunchEndMin=null;
-    if(settings.lunchBreakEnabled){
-      lunchStartMin = toMinutes(settings.lunchBreakStart||'13:00');
-      lunchEndMin = lunchStartMin + (settings.lunchBreakDuration||30);
-    }
+    // shared sequential slot generator: lessons resume right after the
+    // lunch break (which may be a per-weekday override), not on a fixed grid
+    const {slots: rawSlots, lunch} = generateDaySlots(wData.date);
+    const slots = rawSlots.map(t=>({time:fromMinutes(t), minutes:t}));
 
     // per-instructor daily hour limit + osobista przerwa
     const selectedInstructor = instructors.find(i=>i.uid===wData.instructorId) || (currentUser.role==='instructor' ? currentUser : null);
@@ -1769,14 +1962,12 @@ function renderWizardStep(){
     const maxHoursPerDay = selectedInstructor?.maxHoursPerDay || null;
     const maxSlotsPerDay = maxHoursPerDay ? Math.floor(maxHoursPerDay*60/settings.lessonDuration) : Infinity;
     const limitReached = wData.instructorId && instructorBookedCount >= maxSlotsPerDay;
-    let breakStartMin = null, breakEndMin = null;
-    if(selectedInstructor?.breakEnabled){
-      breakStartMin = dayStartMin + (selectedInstructor.breakAfterLessons||3) * settings.lessonDuration;
-      breakEndMin = breakStartMin + (selectedInstructor.breakDuration||15);
-    }
+    const pb = personalBreakWindow(selectedInstructor, wData.date);
+    const breakStartMin = pb ? pb.start : null;
+    const breakEndMin = pb ? pb.end : null;
 
     const hintParts = [];
-    if(lunchStartMin!==null) hintParts.push(`Przerwa obiadowa: ${fromMinutes(lunchStartMin)}–${fromMinutes(lunchEndMin)}`);
+    if(lunch) hintParts.push(`Przerwa obiadowa: ${fromMinutes(lunch.start)}–${fromMinutes(lunch.end)} (zajęcia ruszają dalej zaraz po niej)`);
     if(maxHoursPerDay) hintParts.push(`Limit dzienny instruktora: ${instructorBookedCount}/${maxSlotsPerDay} zajęć (${maxHoursPerDay} h)`);
     if(breakStartMin!==null) hintParts.push(`Przerwa instruktora: ${fromMinutes(breakStartMin)}–${fromMinutes(breakEndMin)}`);
     if(absentAllDay) hintParts.push(`🚫 Instruktor zgłosił nieobecność cały dzień`);
@@ -1788,12 +1979,11 @@ function renderWizardStep(){
       <div class="slot-grid" id="w-slots">
         ${slots.map(s=>{
           const taken = dayLessons.some(l=>l.time===s.time && l.instructorId===wData.instructorId);
-          const inLunch = lunchStartMin!==null && s.minutes>=lunchStartMin && s.minutes<lunchEndMin;
-          const inBreak = breakStartMin!==null && s.minutes>=breakStartMin && s.minutes<breakEndMin;
+          const inBreak = breakStartMin!==null && s.minutes < breakEndMin && s.minutes + settings.lessonDuration > breakStartMin;
           const inAbsence = wData.instructorId && absenceBlocksMinutes(wData.instructorId, wData.date, s.minutes);
           const overLimit = limitReached && !taken;
-          const unavailable = taken || inLunch || inBreak || overLimit || inAbsence;
-          const reason = inAbsence?'Nieobecność instruktora':inLunch?'Przerwa obiadowa':inBreak?'Przerwa instruktora':overLimit?'Dzienny limit godzin osiągnięty':'';
+          const unavailable = taken || inBreak || overLimit || inAbsence;
+          const reason = inAbsence?'Nieobecność instruktora':inBreak?'Przerwa instruktora':overLimit?'Dzienny limit godzin osiągnięty':'';
           return `<div class="slot ${unavailable?'taken':''} ${wData.time===s.time?'selected':''}" onclick="pickTime('${s.time}')" title="${reason}">${s.time}</div>`;
         }).join('')}
       </div>
@@ -1816,7 +2006,7 @@ function renderWizardStep(){
     body.innerHTML = `<div class="wizard-panel">
       <h2>Imię ucznia</h2>
       <div class="wizard-hint">Jak nazywa się kursant?</div>
-      <input class="big-input" id="w-name" placeholder="Imię i nazwisko" value="${wData.name}" autocomplete="off" oninput="onNameFieldInput(this)">
+      <input class="big-input" id="w-name" placeholder="Imię i nazwisko" value="${esc(wData.name)}" autocomplete="off" oninput="onNameFieldInput(this)">
       ${actionsHtml(wData.name.trim().length>1, false)}
     </div>`;
     setTimeout(()=>document.getElementById('w-name')?.focus(), 50);
@@ -1868,9 +2058,9 @@ function renderWizardStep(){
         <div class="summary-list">
           <div class="summary-row"><span class="k">Data</span><span class="v">${fmtDatePL(wData.date)}</span></div>
           <div class="summary-row"><span class="k">Godzina</span><span class="v">${wData.time}</span></div>
-          <div class="summary-row"><span class="k">Instruktor</span><span class="v">${wData.instructorName}</span></div>
-          <div class="summary-row"><span class="k">Uczeń</span><span class="v">${wData.name}</span></div>
-          <div class="summary-row"><span class="k">Telefon</span><span class="v">${wData.countryCode} ${wData.phone}</span></div>
+          <div class="summary-row"><span class="k">Instruktor</span><span class="v">${esc(wData.instructorName)}</span></div>
+          <div class="summary-row"><span class="k">Uczeń</span><span class="v">${esc(wData.name)}</span></div>
+          <div class="summary-row"><span class="k">Telefon</span><span class="v">${esc(wData.countryCode)} ${esc(wData.phone)}</span></div>
           <div class="summary-row"><span class="k">Poziom</span><span class="v" style="color:${cssColor(lv.key)}">${lv.n} — ${lv.label}</span></div>
         </div>
 
@@ -1905,7 +2095,7 @@ function renderWizardStep(){
 
           <div class="opt-label">Uwagi (opcjonalnie)</div>
           <div class="field" style="margin-bottom:0;">
-            <textarea rows="2" placeholder="Sprzęt, kontuzje, uwagi dla instruktora…" oninput="onNotesInput(this)">${wData.notes}</textarea>
+            <textarea rows="2" placeholder="Sprzęt, kontuzje, uwagi dla instruktora…" oninput="onNotesInput(this)">${esc(wData.notes)}</textarea>
           </div>
         </div>
       </div>
@@ -2007,8 +2197,50 @@ window.resetPriceToDefault = function(){
 window.setPaymentStatus = function(status){ wData.paymentStatus = status; renderWizardStep(); };
 window.onNotesInput = function(el){ wData.notes = el.value; };
 
+/* ============ GLOBALNA OBSŁUGA KLAWIATURY I OKIEN ============
+   Enter loguje, Escape zamyka otwarte okno/menu, kliknięcie w ciemne tło
+   zamyka okno — standardowe zachowania, których brakowało. */
+const MODAL_IDS = ['instructor-modal-backdrop','student-modal-backdrop','absence-modal-backdrop','lesson-edit-modal-backdrop'];
+
+document.addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter'){
+    const onLogin = document.getElementById('login-screen').style.display !== 'none';
+    if(onLogin && (e.target.id==='login-email' || e.target.id==='login-password')){
+      e.preventDefault();
+      doLogin();
+      return;
+    }
+  }
+  if(e.key === 'Escape'){
+    const open = MODAL_IDS.find(id=>document.getElementById(id)?.classList.contains('active'));
+    if(open){ document.getElementById(open).classList.remove('active'); return; }
+    if(document.querySelector('.sidebar')?.classList.contains('drawer-open')){ closeMobileDrawer(); return; }
+    if(document.getElementById('wizard-overlay')?.classList.contains('active')) closeWizard();
+  }
+});
+
+// klik w ciemne tło (a nie w samo okno) zamyka okno
+MODAL_IDS.forEach(id=>{
+  const el = document.getElementById(id);
+  if(el) el.addEventListener('click', (e)=>{ if(e.target === el) el.classList.remove('active'); });
+});
+
 window.submitWizard = async function(){
   const btn = document.getElementById('wizard-next-btn');
+
+  // Sprawdzenia tuż przed zapisem — dane mogły się zmienić, odkąd wybrano
+  // godzinę (ktoś inny mógł w tym czasie zająć ten termin albo instruktor
+  // mógł zgłosić nieobecność).
+  const clash = lessons.find(l=>l.date===wData.date && l.time===wData.time
+    && l.instructorId===wData.instructorId && l.status!=='cancelled');
+  if(clash){
+    showToast(`Ten termin jest już zajęty (uczeń: ${clash.studentName})`);
+    return;
+  }
+  if(absenceBlocksMinutes(wData.instructorId, wData.date, toMinutes(wData.time))){
+    if(!confirm('Instruktor ma na ten termin zgłoszoną nieobecność. Zapisać mimo to?')) return;
+  }
+
   btn.disabled = true; btn.textContent = 'Zapisywanie…';
   try{
     const instructor = instructors.find(i=>i.uid===wData.instructorId) || (currentUser.role==='instructor' ? currentUser : null);
@@ -2016,6 +2248,7 @@ window.submitWizard = async function(){
     await addDoc(collection(db,'lessons'), {
       date: wData.date,
       time: wData.time,
+      durationMinutes: settings.lessonDuration,
       instructorId: wData.instructorId,
       instructorName: wData.instructorName,
       studentName: wData.name.trim(),
@@ -2041,6 +2274,7 @@ window.submitWizard = async function(){
     showToast('Błąd zapisu: '+(e.message||''));
   }finally{
     btn.disabled = false;
+    btn.textContent = 'Zatwierdź zapis';
   }
 };
 </script>
