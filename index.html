@@ -26,6 +26,7 @@
   --navy:#0B1F33;
   --navy-2:#12283F;
   --navy-3:#1B3A57;
+  --navy-4:#24466A;
   --snow:#F7F9FC;
   --mist:#C9D6E3;
   --mist-dim:#8FA4B8;
@@ -33,11 +34,14 @@
   --lv1:#2FA84F; /* green - pierwsze kroki */
   --lv2:#2E7FE8; /* blue - podstawy */
   --lv3:#E63946; /* red - pewny siebie */
-  --lv4:#2B2B2B; /* black - zaawansowany */
+  --lv4:#9AA5B1; /* black-piste marker, shown lighter for contrast on navy */
   --lv5:#F2A900; /* gold - ekspert/freeride */
   --danger:#E63946;
   --ok:#2FA84F;
+  --warn:#F2A900;
   --radius:14px;
+  --shadow:0 10px 28px rgba(2,8,16,0.35);
+  --shadow-sm:0 4px 14px rgba(2,8,16,0.25);
   --font-display:'Big Shoulders',sans-serif;
   --font-body:'Inter',sans-serif;
 }
@@ -49,6 +53,17 @@ body{
   color:var(--snow);
   -webkit-tap-highlight-color:transparent;
   overscroll-behavior:none;
+  position:relative;
+}
+/* subtle topographic contour-line atmosphere behind the whole app */
+body::before{
+  content:'';
+  position:fixed; inset:0; z-index:-1; pointer-events:none;
+  background:
+    radial-gradient(ellipse 900px 500px at 15% -5%, rgba(74,144,217,0.14), transparent 60%),
+    radial-gradient(ellipse 700px 500px at 105% 10%, rgba(242,169,0,0.08), transparent 55%),
+    repeating-radial-gradient(circle at 50% 0%, transparent 0, transparent 90px, rgba(255,255,255,0.014) 91px, transparent 92px),
+    var(--navy);
 }
 h1,h2,h3,.display{
   font-family:var(--font-display);
@@ -58,7 +73,7 @@ h1,h2,h3,.display{
   margin:0;
 }
 button{font-family:inherit;cursor:pointer;}
-input,select{font-family:inherit;}
+input,select,textarea{font-family:inherit;}
 .hidden{display:none !important;}
 ::-webkit-scrollbar{width:8px;height:8px;}
 ::-webkit-scrollbar-thumb{background:var(--navy-3);border-radius:8px;}
@@ -70,10 +85,16 @@ input,select{font-family:inherit;}
   align-items:center;
   justify-content:center;
   padding:24px;
+  position:relative;
+  overflow:hidden;
   background:
     radial-gradient(circle at 20% 15%, rgba(74,144,217,0.18), transparent 45%),
     radial-gradient(circle at 85% 80%, rgba(242,169,0,0.10), transparent 40%),
     var(--navy);
+}
+.login-mountains{
+  position:absolute; left:0; right:0; bottom:0; width:100%; height:220px;
+  opacity:0.5; pointer-events:none;
 }
 .login-card{
   width:100%;
@@ -82,6 +103,9 @@ input,select{font-family:inherit;}
   border:1px solid var(--navy-3);
   border-radius:var(--radius);
   padding:32px 28px;
+  box-shadow:var(--shadow);
+  position:relative;
+  z-index:1;
 }
 .login-mark{
   font-family:var(--font-display);
@@ -126,6 +150,7 @@ input,select{font-family:inherit;}
 .role-toggle button.active{
   background:var(--ice);
   color:#fff;
+  box-shadow:0 3px 10px rgba(74,144,217,0.45);
 }
 .field{margin-bottom:14px;}
 .field label{
@@ -137,7 +162,7 @@ input,select{font-family:inherit;}
   margin-bottom:6px;
   font-weight:600;
 }
-.field input, .field select{
+.field input, .field select, .field textarea{
   width:100%;
   padding:12px 14px;
   background:var(--navy);
@@ -146,8 +171,9 @@ input,select{font-family:inherit;}
   color:var(--snow);
   font-size:16px;
   outline:none;
+  transition:border-color .15s;
 }
-.field input:focus, .field select:focus{border-color:var(--ice);}
+.field input:focus, .field select:focus, .field textarea:focus{border-color:var(--ice);}
 .btn{
   display:inline-flex;
   align-items:center;
@@ -161,13 +187,16 @@ input,select{font-family:inherit;}
   letter-spacing:0.04em;
   text-transform:uppercase;
   font-weight:700;
-  transition:transform .1s, opacity .15s;
+  transition:transform .1s, opacity .15s, filter .15s;
 }
 .btn:active{transform:scale(0.97);}
-.btn:disabled{opacity:0.35;cursor:not-allowed;}
-.btn-primary{background:var(--ice);color:#fff;}
-.btn-gold{background:var(--lv5);color:#1a1200;}
-.btn-outline{background:transparent;color:var(--snow);border:1px solid var(--navy-3);}
+.btn:disabled{opacity:0.32;cursor:not-allowed;}
+.btn-primary{background:var(--ice);color:#fff;box-shadow:0 6px 16px rgba(74,144,217,0.35);}
+.btn-primary:not(:disabled):hover{filter:brightness(1.08);}
+.btn-gold{background:var(--lv5);color:#1a1200;box-shadow:0 6px 16px rgba(242,169,0,0.3);}
+.btn-gold:not(:disabled):hover{filter:brightness(1.06);}
+.btn-outline{background:transparent;color:var(--snow);border:1px solid var(--navy-4);}
+.btn-outline:hover{background:var(--navy-3);}
 .btn-danger{background:transparent;color:var(--danger);border:1px solid var(--danger);}
 .btn-block{width:100%;}
 .login-error{color:var(--danger);font-size:13px;margin-top:10px;text-align:center;min-height:16px;}
@@ -187,7 +216,7 @@ input,select{font-family:inherit;}
   top:0;
   height:100vh;
 }
-.sidebar .brand{font-size:22px;line-height:0.95;padding:0 6px 18px;}
+.sidebar .brand{font-size:22px;line-height:0.95;padding:0 6px 18px;display:flex;align-items:center;gap:8px;}
 .sidebar .brand span{display:block;font-size:12px;letter-spacing:0.15em;color:var(--mist-dim);text-transform:none;font-family:var(--font-body);font-weight:600;}
 .nav-item{
   display:flex;
@@ -203,14 +232,17 @@ input,select{font-family:inherit;}
   background:transparent;
   width:100%;
   text-align:left;
+  position:relative;
+  transition:background .12s;
 }
 .nav-item.active{background:var(--navy-3);color:#fff;}
+.nav-item.active::before{content:'';position:absolute;left:-14px;top:8px;bottom:8px;width:3px;background:var(--lv5);border-radius:0 3px 3px 0;}
 .nav-item:hover{background:rgba(255,255,255,0.05);}
 .sidebar-footer{margin-top:auto;padding-top:14px;border-top:1px solid var(--navy-3);}
 .sidebar-user{font-size:13px;color:var(--mist-dim);padding:0 6px 10px;}
 .sidebar-user b{color:var(--snow);display:block;font-size:14px;}
 
-.main{flex:1;min-width:0;padding:28px 32px 60px;max-width:1100px;}
+.main{flex:1;min-width:0;padding:28px 32px 60px;max-width:1140px;}
 .page-head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:22px;}
 .page-head h1{font-size:32px;}
 .page-sub{color:var(--mist-dim);font-size:13px;text-transform:uppercase;letter-spacing:0.08em;font-weight:600;}
@@ -221,35 +253,49 @@ input,select{font-family:inherit;}
   border-radius:var(--radius);
   padding:20px;
   margin-bottom:18px;
+  box-shadow:var(--shadow-sm);
 }
 .card h3{font-size:20px;margin-bottom:14px;}
 .grid{display:grid;gap:14px;}
 .grid-2{grid-template-columns:1fr 1fr;}
 .grid-3{grid-template-columns:repeat(3,1fr);}
 .grid-4{grid-template-columns:repeat(4,1fr);}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:18px;}
 @media(max-width:900px){.grid-2,.grid-3,.grid-4{grid-template-columns:1fr 1fr;}}
-@media(max-width:640px){.grid-2,.grid-3,.grid-4{grid-template-columns:1fr;} .sidebar{position:fixed;left:0;bottom:0;top:auto;width:100%;height:auto;flex-direction:row;overflow-x:auto;border-right:none;border-top:1px solid var(--navy-3);padding:8px;z-index:40;} .sidebar .brand,.sidebar-footer,.sidebar-user{display:none;} .nav-item{flex-direction:column;font-size:10px;gap:3px;white-space:nowrap;padding:8px 10px;} .main{padding:18px 16px 110px;}}
+@media(max-width:640px){.grid-2,.grid-3,.grid-4{grid-template-columns:1fr;} .sidebar{position:fixed;left:0;bottom:0;top:auto;width:100%;height:auto;flex-direction:row;overflow-x:auto;border-right:none;border-top:1px solid var(--navy-3);padding:8px;z-index:40;box-shadow:0 -6px 20px rgba(0,0,0,0.3);} .sidebar .brand,.sidebar-footer,.sidebar-user{display:none;} .nav-item{flex-direction:column;font-size:10px;gap:3px;white-space:nowrap;padding:8px 10px;} .nav-item.active::before{left:50%;top:auto;bottom:0;transform:translateX(-50%);width:22px;height:3px;border-radius:3px 3px 0 0;} .main{padding:18px 16px 110px;}}
 
-.stat{background:var(--navy);border:1px solid var(--navy-3);border-radius:11px;padding:16px;}
-.stat .num{font-family:var(--font-display);font-size:34px;font-weight:800;}
-.stat .lbl{font-size:12px;color:var(--mist-dim);text-transform:uppercase;letter-spacing:0.06em;font-weight:600;margin-top:2px;}
+.stat{background:var(--navy);border:1px solid var(--navy-3);border-left:3px solid var(--ice);border-radius:11px;padding:16px;position:relative;overflow:hidden;}
+.stat .num{font-family:var(--font-display);font-size:32px;font-weight:800;}
+.stat .lbl{font-size:11.5px;color:var(--mist-dim);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-top:2px;}
+.stat.c-lv1{border-left-color:var(--lv1);}
+.stat.c-lv2{border-left-color:var(--lv2);}
+.stat.c-lv3{border-left-color:var(--lv3);}
+.stat.c-lv5{border-left-color:var(--lv5);}
+.stat.c-danger{border-left-color:var(--danger);}
 
 table{width:100%;border-collapse:collapse;font-size:14px;}
 th{text-align:left;color:var(--mist-dim);font-size:11px;text-transform:uppercase;letter-spacing:0.06em;padding:8px 10px;border-bottom:1px solid var(--navy-3);}
 td{padding:10px 10px;border-bottom:1px solid var(--navy-3);}
 tr:last-child td{border-bottom:none;}
-.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:12px;font-weight:700;}
-.dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
+tbody tr{transition:background .1s;}
+tbody tr:hover{background:rgba(255,255,255,0.025);}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:12px;font-weight:700;white-space:nowrap;}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0;}
 
-.icon-btn{background:transparent;border:1px solid var(--navy-3);color:var(--mist);border-radius:8px;padding:6px 10px;font-size:13px;font-weight:600;}
+.avatar{width:32px;height:32px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:800;font-size:13px;color:#fff;flex-shrink:0;}
+.name-cell{display:flex;align-items:center;gap:10px;}
+
+.icon-btn{background:transparent;border:1px solid var(--navy-4);color:var(--mist);border-radius:8px;padding:6px 10px;font-size:13px;font-weight:600;transition:background .12s;}
 .icon-btn.danger{color:var(--danger);border-color:rgba(230,57,70,0.4);}
 .icon-btn:hover{background:var(--navy-3);}
+.status-select{background:var(--navy);border:1px solid var(--navy-4);color:var(--snow);border-radius:8px;padding:5px 8px;font-size:12.5px;font-weight:600;}
 
 .toast{
   position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(20px);
   background:var(--navy-3);border:1px solid var(--ice);color:#fff;
   padding:12px 20px;border-radius:10px;font-size:14px;font-weight:600;
   opacity:0;transition:all .25s;z-index:200;pointer-events:none;box-shadow:0 10px 30px rgba(0,0,0,0.4);
+  max-width:90vw;text-align:center;
 }
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
@@ -259,11 +305,12 @@ tr:last-child td{border-bottom:none;}
 .cal-cell{
   aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
   border-radius:9px;background:var(--navy);border:1px solid var(--navy-3);font-size:14px;font-weight:600;
-  position:relative;color:var(--mist);
+  position:relative;color:var(--mist);transition:transform .1s;
 }
 .cal-cell.today{border-color:var(--ice);}
 .cal-cell.has-lessons::after{content:'';position:absolute;bottom:5px;width:5px;height:5px;border-radius:50%;background:var(--lv5);}
 .cal-cell.empty{background:transparent;border:none;}
+@media(hover:hover){.cal-cell:not(.empty):hover{transform:translateY(-1px);border-color:var(--navy-4);}}
 
 /* ============ WIZARD ============ */
 #wizard-overlay{
@@ -287,12 +334,12 @@ tr:last-child td{border-bottom:none;}
 .lift-label{font-size:9.5px;color:var(--mist-dim);text-transform:uppercase;text-align:center;letter-spacing:0.02em;display:none;}
 @media(min-width:640px){.lift-label{display:block;}}
 
-.wizard-body{flex:1;overflow-y:auto;display:flex;flex-direction:column;align-items:center;padding:20px 20px 30px;}
+.wizard-body{flex:1;overflow-y:auto;display:flex;flex-direction:column;align-items:center;padding:20px 20px 40px;}
 .wizard-panel{width:100%;max-width:480px;}
 .wizard-panel h2{font-size:30px;text-align:center;margin-bottom:6px;}
-.wizard-hint{text-align:center;color:var(--mist-dim);font-size:13.5px;margin-bottom:26px;}
+.wizard-hint{text-align:center;color:var(--mist-dim);font-size:13.5px;margin-bottom:22px;}
 
-.big-cal{background:var(--navy-2);border:1px solid var(--navy-3);border-radius:16px;padding:16px;}
+.big-cal{background:var(--navy-2);border:1px solid var(--navy-3);border-radius:16px;padding:16px;box-shadow:var(--shadow-sm);}
 .big-cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
 .big-cal-head button{background:var(--navy-3);border:none;color:#fff;width:36px;height:36px;border-radius:9px;font-size:18px;}
 .big-cal-head .month{font-family:var(--font-display);font-size:20px;text-transform:uppercase;}
@@ -302,7 +349,7 @@ tr:last-child td{border-bottom:none;}
   border-radius:10px;background:var(--navy);border:1px solid var(--navy-3);font-size:15px;font-weight:600;color:var(--snow);
 }
 .big-cal-cell.disabled{color:var(--navy-3);pointer-events:none;}
-.big-cal-cell.selected{background:var(--ice);border-color:var(--ice);color:#fff;}
+.big-cal-cell.selected{background:var(--ice);border-color:var(--ice);color:#fff;box-shadow:0 4px 14px rgba(74,144,217,0.4);}
 .big-cal-cell.today{border-color:var(--lv5);}
 
 .instr-pick{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;margin-bottom:18px;}
@@ -328,7 +375,7 @@ tr:last-child td{border-bottom:none;}
 .level-list{display:flex;flex-direction:column;gap:10px;}
 .level-card{
   display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:13px;
-  background:var(--navy-2);border:1.5px solid var(--navy-3);text-align:left;
+  background:var(--navy-2);border:1.5px solid var(--navy-3);text-align:left;transition:border-color .12s;
 }
 .level-card.selected{border-color:var(--lv-active,var(--ice));background:var(--navy-3);}
 .level-badge{
@@ -339,25 +386,31 @@ tr:last-child td{border-bottom:none;}
 .level-text span{font-size:12.5px;color:var(--mist-dim);}
 
 .summary-list{display:flex;flex-direction:column;gap:0;}
-.summary-row{display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--navy-3);font-size:15px;}
+.summary-row{display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--navy-3);font-size:15px;gap:12px;}
 .summary-row:last-child{border-bottom:none;}
-.summary-row .k{color:var(--mist-dim);}
-.summary-row .v{font-weight:700;}
+.summary-row .k{color:var(--mist-dim);flex-shrink:0;}
+.summary-row .v{font-weight:700;text-align:right;}
 
-.wizard-footer{
-  display:flex;gap:12px;padding:16px 20px;border-top:1px solid var(--navy-3);
-  position:sticky;bottom:0;background:var(--navy);
-}
-.wizard-footer .btn{flex:1;}
+/* Dalej / Wstecz sit right under the field, not pinned to the screen bottom */
+.wizard-actions{display:flex;gap:12px;margin-top:26px;}
+.wizard-actions .btn{flex:1;}
+
+.optional-block{margin-top:22px;padding-top:18px;border-top:1px dashed var(--navy-3);}
+.optional-block .opt-label{font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist-dim);font-weight:700;margin-bottom:10px;}
+.choice-row{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;}
+.choice-chip{flex:1;min-width:110px;padding:9px 10px;text-align:center;border-radius:9px;background:var(--navy);border:1.5px solid var(--navy-3);font-size:13px;font-weight:700;}
+.choice-chip.selected{border-color:var(--ice);background:var(--navy-3);color:#fff;}
+.choice-chip.selected.pay-ok{border-color:var(--ok);}
+.choice-chip.selected.pay-warn{border-color:var(--warn);}
 
 .empty-state{text-align:center;padding:40px 20px;color:var(--mist-dim);}
 .empty-state b{display:block;color:var(--snow);font-size:17px;margin-bottom:6px;font-family:var(--font-display);text-transform:uppercase;}
 
 .modal-backdrop{display:none;position:fixed;inset:0;background:rgba(5,12,20,0.72);z-index:150;align-items:center;justify-content:center;padding:20px;}
 .modal-backdrop.active{display:flex;}
-.modal{background:var(--navy-2);border:1px solid var(--navy-3);border-radius:var(--radius);padding:24px;width:100%;max-width:420px;max-height:90vh;overflow-y:auto;}
+.modal{background:var(--navy-2);border:1px solid var(--navy-3);border-radius:var(--radius);padding:24px;width:100%;max-width:420px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow);}
 .modal h3{font-size:22px;margin-bottom:16px;}
-.switch-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;}
+.switch-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;gap:12px;}
 .switch{position:relative;width:44px;height:25px;background:var(--navy-3);border-radius:20px;flex-shrink:0;transition:background .2s;}
 .switch.on{background:var(--ice);}
 .switch .knob{position:absolute;top:3px;left:3px;width:19px;height:19px;border-radius:50%;background:#fff;transition:left .2s;}
@@ -368,6 +421,10 @@ tr:last-child td{border-bottom:none;}
 
 <!-- ================= LOGIN ================= -->
 <div id="login-screen">
+  <svg class="login-mountains" viewBox="0 0 800 220" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+    <polygon points="0,220 0,140 120,40 230,140 300,90 420,140 520,60 650,140 720,110 800,140 800,220" fill="#12283F"/>
+    <polygon points="0,220 0,170 150,90 260,170 380,110 500,170 630,100 760,170 800,150 800,220" fill="#1B3A57" opacity="0.7"/>
+  </svg>
   <div class="login-card">
     <div class="login-mark">GÓRY BYSTRZYCKIE</div>
     <h1 class="login-title">Szkółka<br>Narciarska</h1>
@@ -391,7 +448,7 @@ tr:last-child td{border-bottom:none;}
 <!-- ================= APP SHELL ================= -->
 <div id="app-shell">
   <nav class="sidebar">
-    <div class="brand">Szkółka<span>Panel zarządzania</span></div>
+    <div class="brand">🏔️ Szkółka<span>Panel zarządzania</span></div>
     <div id="nav-items"></div>
     <div class="sidebar-footer">
       <div class="sidebar-user"><b id="sidebar-username">—</b><span id="sidebar-role-label"></span></div>
@@ -414,7 +471,6 @@ tr:last-child td{border-bottom:none;}
     <div class="lift-stations" id="lift-stations"></div>
   </div>
   <div class="wizard-body" id="wizard-body"></div>
-  <div class="wizard-footer" id="wizard-footer"></div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -443,14 +499,7 @@ tr:last-child td{border-bottom:none;}
 
 <script type="module">
 /* =====================================================================
-   FIREBASE SETUP
-   1. Utwórz nowy projekt na https://console.firebase.google.com
-   2. Włącz Authentication → metoda logowania: E-mail/Hasło
-   3. Włącz Firestore Database (tryb produkcyjny)
-   4. Skopiuj konfigurację projektu (Ustawienia projektu → Twoje aplikacje → Web)
-      i wklej poniżej w miejsce firebaseConfig
-   5. Reguły bezpieczeństwa Firestore oraz instrukcja utworzenia pierwszego
-      konta Operatora znajdują się w pliku SETUP.md
+   FIREBASE SETUP — patrz SETUP.md dla pełnej instrukcji.
 ===================================================================== */
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
 import {
@@ -459,7 +508,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
 import {
   getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc,
-  collection, addDoc, query, where, onSnapshot, serverTimestamp, Timestamp
+  collection, addDoc, query, where, onSnapshot, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -482,6 +531,18 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+/* =====================================================================
+   WAŻNE — DLACZEGO TA SEKCJA WYGLĄDA TAK, A NIE INACZEJ (uwaga techniczna):
+   Ten plik używa <script type="module">. W modułach JS zwykłe `let`/`const`
+   oraz zwykłe deklaracje `function` NIE trafiają do obiektu globalnego
+   `window`. Atrybuty HTML typu onclick="..."/oninput="..." wykonują się
+   jednak w globalnym zasięgu. Dlatego KAŻDA funkcja wywoływana bezpośrednio
+   z atrybutu onclick/oninput/onchange musi być jawnie przypisana jako
+   `window.nazwaFunkcji = ...` — inaczej przeglądarka zgłasza błąd
+   "X is not defined" i nic się nie dzieje po kliknięciu. To był dokładnie
+   powód, dla którego przycisk "Dalej" nie reagował po wpisaniu imienia.
+===================================================================== */
+
 /* ============ CONSTANTS ============ */
 const LEVELS = [
   {n:1, key:'lv1', label:'Pierwsze kroki', desc:'Nigdy nie stał(a) na nartach lub 1–2 razy w życiu'},
@@ -500,6 +561,8 @@ const COUNTRY_CODES = [
 ];
 const DOW = ['Nd','Pn','Wt','Śr','Cz','Pt','So'];
 const MONTHS = ['Styczeń','Luty','Marzec','Kwiecień','Maj','Czerwiec','Lipiec','Sierpień','Wrzesień','Październik','Listopad','Grudzień'];
+const STATUS_LABELS = {planned:'Zaplanowane', completed:'Odbyte', noshow:'Nieobecność', cancelled:'Odwołane'};
+const AVATAR_PALETTE = ['#2FA84F','#2E7FE8','#E63946','#F2A900','#9B5DE5','#00B4A6'];
 
 /* ============ GLOBAL STATE ============ */
 let loginRole = 'operator';
@@ -521,10 +584,48 @@ function showToast(msg){
   showToast._t = setTimeout(()=>t.classList.remove('show'), 2600);
 }
 function levelMeta(n){return LEVELS.find(l=>l.n===n) || LEVELS[0];}
-function fmtMoney(n){return (n||0).toLocaleString('pl-PL')+' zł';}
+function fmtMoney(n){return Math.round(n||0).toLocaleString('pl-PL')+' zł';}
 function fmtDatePL(iso){
   const [y,m,d] = iso.split('-');
   return `${d}.${m}.${y}`;
+}
+function cssColor(key){
+  return {lv1:'#2FA84F',lv2:'#2E7FE8',lv3:'#E63946',lv4:'#9AA5B1',lv5:'#F2A900'}[key];
+}
+function initials(name){
+  return (name||'?').trim().split(/\s+/).slice(0,2).map(w=>w[0]?.toUpperCase()||'').join('') || '?';
+}
+function avatarColor(name){
+  let h = 0;
+  for(const ch of (name||'')) h = (h*31 + ch.charCodeAt(0)) % AVATAR_PALETTE.length;
+  return AVATAR_PALETTE[h];
+}
+function avatarHtml(name){
+  return `<span class="avatar" style="background:${avatarColor(name)}">${initials(name)}</span>`;
+}
+function lessonPrice(l){
+  const size = (l.lessonType==='group') ? (l.groupSize||2) : 1;
+  return (l.clientPrice||0) * size;
+}
+function statusBadge(status){
+  const map = {
+    planned:  {c:'#4A90D9', label:'Zaplanowane'},
+    completed:{c:'#2FA84F', label:'Odbyte'},
+    noshow:   {c:'#F2A900', label:'Nieobecność'},
+    cancelled:{c:'#8FA4B8', label:'Odwołane'},
+  };
+  const m = map[status] || map.planned;
+  return `<span class="badge" style="background:${m.c}22;color:${m.c};"><span class="dot" style="background:${m.c}"></span>${m.label}</span>`;
+}
+function paymentBadge(status){
+  return status==='paid'
+    ? `<span class="badge" style="background:#2FA84F22;color:#2FA84F;">Zapłacono</span>`
+    : `<span class="badge" style="background:#F2A90022;color:#F2A900;">Do zapłaty</span>`;
+}
+function typeBadge(l){
+  return l.lessonType==='group'
+    ? `<span class="badge" style="background:#4A90D922;color:#4A90D9;">Grupa ×${l.groupSize||2}</span>`
+    : `<span class="badge" style="background:#8FA4B822;color:#8FA4B8;">Indywidualne</span>`;
 }
 
 /* ============ LOGIN ============ */
@@ -604,7 +705,8 @@ window.saveSettings = async function(){
   const dayStart = Number(document.getElementById('set-daystart').value)||9;
   const dayEnd = Number(document.getElementById('set-dayend').value)||16;
   const smsWebhookUrl = document.getElementById('set-smsurl').value.trim();
-  settings = {...settings, basePrice, lessonDuration, dayStart, dayEnd, smsWebhookUrl};
+  const instructorRateDefault = Number(document.getElementById('set-instr-default').value)||0;
+  settings = {...settings, basePrice, lessonDuration, dayStart, dayEnd, smsWebhookUrl, instructorRateDefault};
   await setDoc(doc(db,'settings','general'), settings, {merge:true});
   showToast('Ustawienia zapisane');
   renderPage();
@@ -624,7 +726,7 @@ function subscribeLessons(){
   if(unsubLessons) unsubLessons();
   unsubLessons = onSnapshot(collection(db,'lessons'), (qs)=>{
     lessons = [];
-    qs.forEach(d=>lessons.push({id:d.id, ...d.data()}));
+    qs.forEach(d=>lessons.push({id:d.id, status:'planned', lessonType:'individual', groupSize:1, paymentStatus:'unpaid', notes:'', ...d.data()}));
     lessons.sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time));
     renderPage();
   });
@@ -683,16 +785,21 @@ function renderCalendarPage(main){
         <h3>${fmtDatePL(calSelectedDate)}</h3>
         <div id="day-list">
           ${dayLessons.length===0 ? `<div class="empty-state"><b>Brak zajęć</b>Wybierz inny dzień lub dodaj nowy zapis.</div>` :
-          `<table><thead><tr><th>Godz.</th><th>Uczeń</th><th>Instruktor</th><th>Poziom</th><th></th></tr></thead><tbody>
+          `<table><thead><tr><th>Godz.</th><th>Uczeń</th><th>Instruktor</th><th>Poziom</th><th>Typ</th><th>Płatność</th><th>Status</th><th></th></tr></thead><tbody>
             ${dayLessons.map(l=>{
               const lv = levelMeta(l.level);
-              const canDelete = currentUser.role==='operator' || currentUser.canManageAll || l.instructorId===currentUser.uid;
+              const canManage = currentUser.role==='operator' || currentUser.canManageAll || l.instructorId===currentUser.uid;
               return `<tr>
                 <td><b>${l.time}</b></td>
                 <td>${l.studentName}<br><span style="color:var(--mist-dim);font-size:12px;">${l.studentPhone}</span></td>
                 <td>${l.instructorName}</td>
                 <td><span class="badge" style="background:${cssColor(lv.key)}22;color:${cssColor(lv.key)};"><span class="dot" style="background:${cssColor(lv.key)}"></span>${lv.n}</span></td>
-                <td>${canDelete ? `<button class="icon-btn danger" onclick="deleteLesson('${l.id}')">Usuń</button>` : ''}</td>
+                <td>${typeBadge(l)}</td>
+                <td>${paymentBadge(l.paymentStatus)}</td>
+                <td>${canManage ? `<select class="status-select" onchange="onLessonStatusChange(this,'${l.id}')">
+                    ${Object.entries(STATUS_LABELS).map(([k,v])=>`<option value="${k}" ${l.status===k?'selected':''}>${v}</option>`).join('')}
+                  </select>` : statusBadge(l.status)}</td>
+                <td>${canManage ? `<button class="icon-btn danger" onclick="deleteLesson('${l.id}')">Usuń</button>` : ''}</td>
               </tr>`;
             }).join('')}
           </tbody></table>`}
@@ -701,10 +808,6 @@ function renderCalendarPage(main){
     </div>
   `;
   renderMiniCal();
-}
-
-function cssColor(key){
-  return {lv1:'#2FA84F',lv2:'#2E7FE8',lv3:'#E63946',lv4:'#9AA5B1',lv5:'#F2A900'}[key];
 }
 
 function renderMiniCal(){
@@ -738,9 +841,13 @@ window.calNav = function(dir){
 window.selectCalDate = function(iso){ calSelectedDate = iso; renderCalendarPage(document.getElementById('main-content')); };
 
 window.deleteLesson = async function(id){
-  if(!confirm('Usunąć te zajęcia?')) return;
+  if(!confirm('Usunąć te zajęcia na stałe?')) return;
   await deleteDoc(doc(db,'lessons',id));
   showToast('Zajęcia usunięte');
+};
+window.onLessonStatusChange = async function(sel, id){
+  await updateDoc(doc(db,'lessons',id), {status: sel.value});
+  showToast('Status zaktualizowany');
 };
 
 /* ============ STUDENTS PAGE (operator) ============ */
@@ -749,10 +856,10 @@ function renderStudentsPage(main){
   const map = new Map();
   lessons.forEach(l=>{
     const k = l.studentPhone;
-    if(!map.has(k)) map.set(k, {name:l.studentName, phone:l.studentPhone, count:0, lastDate:l.date, level:l.level});
+    if(!map.has(k)) map.set(k, {name:l.studentName, phone:l.studentPhone, count:0, lastDate:l.date, level:l.level, paymentStatus:l.paymentStatus});
     const s = map.get(k);
     s.count++;
-    if(l.date > s.lastDate){ s.lastDate = l.date; s.level = l.level; }
+    if(l.date >= s.lastDate){ s.lastDate = l.date; s.level = l.level; s.paymentStatus = l.paymentStatus; }
   });
   const list = [...map.values()].sort((a,b)=>b.lastDate.localeCompare(a.lastDate));
   main.innerHTML = `
@@ -760,12 +867,12 @@ function renderStudentsPage(main){
     <button class="btn btn-gold" onclick="openWizard()">＋ Nowy zapis</button></div>
     <div class="card">
       ${list.length===0 ? `<div class="empty-state"><b>Brak uczniów</b>Zapisz pierwszego kursanta.</div>` :
-      `<table><thead><tr><th>Imię</th><th>Telefon</th><th>Ostatni poziom</th><th>Liczba zajęć</th><th>Ostatnie zajęcia</th></tr></thead><tbody>
+      `<table><thead><tr><th>Imię</th><th>Telefon</th><th>Ostatni poziom</th><th>Liczba zajęć</th><th>Ostatnie zajęcia</th><th>Płatność</th></tr></thead><tbody>
       ${list.map(s=>{
         const lv = levelMeta(s.level);
-        return `<tr><td><b>${s.name}</b></td><td>${s.phone}</td>
+        return `<tr><td class="name-cell">${avatarHtml(s.name)}<b>${s.name}</b></td><td>${s.phone}</td>
         <td><span class="badge" style="background:${cssColor(lv.key)}22;color:${cssColor(lv.key)};"><span class="dot" style="background:${cssColor(lv.key)}"></span>${lv.n} — ${lv.label}</span></td>
-        <td>${s.count}</td><td>${fmtDatePL(s.lastDate)}</td></tr>`;
+        <td>${s.count}</td><td>${fmtDatePL(s.lastDate)}</td><td>${paymentBadge(s.paymentStatus)}</td></tr>`;
       }).join('')}
       </tbody></table>`}
     </div>
@@ -781,7 +888,7 @@ function renderInstructorsPage(main){
       ${instructors.length===0 ? `<div class="empty-state"><b>Brak instruktorów</b>Dodaj pierwsze konto instruktorskie.</div>` :
       `<table><thead><tr><th>Imię</th><th>E-mail</th><th>Stawka</th><th>Zarządza wszystkim</th><th></th></tr></thead><tbody>
       ${instructors.map(i=>`<tr>
-        <td><b>${i.name}</b></td><td>${i.email}</td><td>${fmtMoney(i.pricePerLesson)}</td>
+        <td class="name-cell">${avatarHtml(i.name)}<b>${i.name}</b></td><td>${i.email}</td><td>${fmtMoney(i.pricePerLesson)}</td>
         <td>${i.canManageAll ? '<span class="badge" style="background:#2FA84F22;color:#2FA84F;">Tak</span>' : '<span class="badge" style="background:#8FA4B822;color:#8FA4B8;">Nie</span>'}</td>
         <td><button class="icon-btn" onclick="openInstructorModal('${i.uid}')">Edytuj</button>
         <button class="icon-btn danger" onclick="removeInstructor('${i.uid}')">Usuń</button></td>
@@ -849,10 +956,11 @@ window.removeInstructor = async function(uid){
 function renderStatsPage(main){
   const now = new Date();
   const monthStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}`;
-  const monthLessons = lessons.filter(l=>l.date.startsWith(monthStr));
-  const totalRevenue = monthLessons.reduce((s,l)=>s+(l.clientPrice||0),0);
+  const monthLessons = lessons.filter(l=>l.date.startsWith(monthStr) && l.status!=='cancelled');
+  const totalRevenue = monthLessons.reduce((s,l)=>s+lessonPrice(l),0);
   const totalPayout = monthLessons.reduce((s,l)=>s+(l.instructorPay||0),0);
   const totalHours = (monthLessons.length * settings.lessonDuration/60);
+  const unpaid = monthLessons.filter(l=>l.paymentStatus!=='paid').reduce((s,l)=>s+lessonPrice(l),0);
 
   const byInstructor = {};
   monthLessons.forEach(l=>{
@@ -864,17 +972,18 @@ function renderStatsPage(main){
 
   main.innerHTML = `
     <div class="page-head"><div><div class="page-sub">${MONTHS[now.getMonth()]} ${now.getFullYear()}</div><h1>Statystyki</h1></div></div>
-    <div class="grid grid-4" style="margin-bottom:18px;">
-      <div class="stat"><div class="num">${monthLessons.length}</div><div class="lbl">Zajęć w tym miesiącu</div></div>
-      <div class="stat"><div class="num">${totalHours.toFixed(0)}h</div><div class="lbl">Godzin łącznie</div></div>
-      <div class="stat"><div class="num">${fmtMoney(totalRevenue)}</div><div class="lbl">Przychód</div></div>
+    <div class="stats-grid">
+      <div class="stat c-lv2"><div class="num">${monthLessons.length}</div><div class="lbl">Zajęć w tym miesiącu</div></div>
+      <div class="stat c-lv1"><div class="num">${totalHours.toFixed(0)}h</div><div class="lbl">Godzin łącznie</div></div>
+      <div class="stat c-lv5"><div class="num">${fmtMoney(totalRevenue)}</div><div class="lbl">Przychód</div></div>
       <div class="stat"><div class="num">${fmtMoney(totalRevenue-totalPayout)}</div><div class="lbl">Marża (po wypłatach)</div></div>
+      <div class="stat c-danger"><div class="num">${fmtMoney(unpaid)}</div><div class="lbl">Do zapłaty od klientów</div></div>
     </div>
     <div class="card">
       <h3>Instruktorzy w tym miesiącu</h3>
       ${rows.length===0 ? `<div class="empty-state"><b>Brak danych</b>Jeszcze żadnych zajęć w tym miesiącu.</div>` :
       `<table><thead><tr><th>Instruktor</th><th>Zajęcia</th><th>Godziny</th><th>Wypłata</th></tr></thead><tbody>
-      ${rows.map(r=>`<tr><td><b>${r.name}</b></td><td>${r.count}</td><td>${(r.count*settings.lessonDuration/60).toFixed(1)}h</td><td>${fmtMoney(r.payout)}</td></tr>`).join('')}
+      ${rows.map(r=>`<tr><td class="name-cell">${avatarHtml(r.name)}<b>${r.name}</b></td><td>${r.count}</td><td>${(r.count*settings.lessonDuration/60).toFixed(1)}h</td><td>${fmtMoney(r.payout)}</td></tr>`).join('')}
       </tbody></table>`}
     </div>
   `;
@@ -882,7 +991,7 @@ function renderStatsPage(main){
 
 /* ============ MY STATS PAGE (instructor) ============ */
 function renderMyStatsPage(main){
-  const mine = lessons.filter(l=>l.instructorId===currentUser.uid);
+  const mine = lessons.filter(l=>l.instructorId===currentUser.uid && l.status!=='cancelled');
   const now = new Date();
   const monthStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}`;
   const monthMine = mine.filter(l=>l.date.startsWith(monthStr));
@@ -891,18 +1000,18 @@ function renderMyStatsPage(main){
   const earnings = monthMine.reduce((s,l)=>s+(l.instructorPay||0),0);
   main.innerHTML = `
     <div class="page-head"><div><div class="page-sub">${currentUser.name}</div><h1>Moje godziny</h1></div></div>
-    <div class="grid grid-4" style="margin-bottom:18px;">
-      <div class="stat"><div class="num">${weekMine.length}</div><div class="lbl">Zajęcia (7 dni)</div></div>
-      <div class="stat"><div class="num">${monthMine.length}</div><div class="lbl">Zajęcia w miesiącu</div></div>
+    <div class="stats-grid">
+      <div class="stat c-lv2"><div class="num">${weekMine.length}</div><div class="lbl">Zajęcia (7 dni)</div></div>
+      <div class="stat c-lv1"><div class="num">${monthMine.length}</div><div class="lbl">Zajęcia w miesiącu</div></div>
       <div class="stat"><div class="num">${(monthMine.length*settings.lessonDuration/60).toFixed(1)}h</div><div class="lbl">Godziny w miesiącu</div></div>
-      <div class="stat"><div class="num">${fmtMoney(earnings)}</div><div class="lbl">Zarobek w miesiącu</div></div>
+      <div class="stat c-lv5"><div class="num">${fmtMoney(earnings)}</div><div class="lbl">Zarobek w miesiącu</div></div>
     </div>
     <div class="card">
       <h3>Ostatnie zajęcia</h3>
       ${mine.length===0 ? `<div class="empty-state"><b>Brak zajęć</b></div>` :
-      `<table><thead><tr><th>Data</th><th>Godz.</th><th>Uczeń</th><th>Poziom</th><th>Wypłata</th></tr></thead><tbody>
+      `<table><thead><tr><th>Data</th><th>Godz.</th><th>Uczeń</th><th>Poziom</th><th>Status</th><th>Wypłata</th></tr></thead><tbody>
       ${mine.slice(-15).reverse().map(l=>{const lv=levelMeta(l.level);return `<tr><td>${fmtDatePL(l.date)}</td><td>${l.time}</td><td>${l.studentName}</td>
-      <td><span class="badge" style="background:${cssColor(lv.key)}22;color:${cssColor(lv.key)};">${lv.n}</span></td><td>${fmtMoney(l.instructorPay)}</td></tr>`}).join('')}
+      <td><span class="badge" style="background:${cssColor(lv.key)}22;color:${cssColor(lv.key)};">${lv.n}</span></td><td>${statusBadge(l.status)}</td><td>${fmtMoney(l.instructorPay)}</td></tr>`}).join('')}
       </tbody></table>`}
     </div>
   `;
@@ -912,7 +1021,7 @@ function renderMyStatsPage(main){
 function renderRemindersPage(main){
   const tmr = new Date(); tmr.setDate(tmr.getDate()+1);
   const tmrIso = `${tmr.getFullYear()}-${pad(tmr.getMonth()+1)}-${pad(tmr.getDate())}`;
-  const tmrLessons = lessons.filter(l=>l.date===tmrIso).sort((a,b)=>a.time.localeCompare(b.time));
+  const tmrLessons = lessons.filter(l=>l.date===tmrIso && l.status!=='cancelled').sort((a,b)=>a.time.localeCompare(b.time));
   main.innerHTML = `
     <div class="page-head"><div><div class="page-sub">Automatyczne przypomnienia SMS</div><h1>Przypomnienia</h1></div></div>
     <div class="card">
@@ -929,7 +1038,7 @@ function renderRemindersPage(main){
   `;
 }
 window.approveReminders = async function(dateIso){
-  const toSend = lessons.filter(l=>l.date===dateIso && !l.reminderSent);
+  const toSend = lessons.filter(l=>l.date===dateIso && !l.reminderSent && l.status!=='cancelled');
   if(toSend.length===0){ showToast('Brak przypomnień do wysłania'); return; }
   if(!settings.smsWebhookUrl){
     showToast('Skonfiguruj najpierw bramkę SMS w Ustawieniach');
@@ -955,24 +1064,23 @@ function renderSettingsPage(main){
     <div class="card">
       <h3>Cennik i harmonogram</h3>
       <div class="grid grid-2">
-        <div class="field"><label>Cena zajęć dla klienta (zł)</label><input type="number" id="set-baseprice" value="${settings.basePrice}"></div>
+        <div class="field"><label>Cena zajęć dla klienta (zł / os.)</label><input type="number" id="set-baseprice" value="${settings.basePrice}"></div>
         <div class="field"><label>Czas trwania zajęć (min)</label><input type="number" id="set-duration" value="${settings.lessonDuration}"></div>
         <div class="field"><label>Początek dnia (godz.)</label><input type="number" id="set-daystart" value="${settings.dayStart}"></div>
         <div class="field"><label>Koniec dnia (godz.)</label><input type="number" id="set-dayend" value="${settings.dayEnd}"></div>
       </div>
       <div class="field"><label>Adres bramki SMS (URL Cloud Function)</label><input id="set-smsurl" value="${settings.smsWebhookUrl||''}" placeholder="https://europe-central2-twojprojekt.cloudfunctions.net/sendReminders"></div>
+      <div class="field" style="max-width:260px;"><label>Domyślna stawka dla nowych instruktorów (zł/zajęcia)</label><input type="number" id="set-instr-default" value="${settings.instructorRateDefault}"></div>
       <button class="btn btn-primary" onclick="saveSettings()">Zapisz ustawienia</button>
-    </div>
-    <div class="card">
-      <h3>Domyślna stawka instruktorska</h3>
-      <div class="field" style="max-width:220px;"><label>Nowi instruktorzy (zł/zajęcia)</label><input type="number" id="set-instr-default" value="${settings.instructorRateDefault}" onchange="settings.instructorRateDefault=Number(this.value)"></div>
-      <div style="color:var(--mist-dim);font-size:13px;">Indywidualne stawki dla poszczególnych instruktorów ustawiasz w zakładce Instruktorzy.</div>
+      <div style="color:var(--mist-dim);font-size:13px;margin-top:10px;">Indywidualne stawki dla poszczególnych instruktorów ustawiasz w zakładce Instruktorzy. Przy zajęciach grupowych cena dla klienta mnożona jest przez liczbę uczestników.</div>
     </div>
   `;
 }
 
 /* =====================================================================
    ENROLLMENT WIZARD
+   Każdy krok renderuje własny przycisk "Dalej" tuż pod polem — nie jest
+   on przyklejony na sztywno do dołu ekranu.
 ===================================================================== */
 const STEPS = ['date','time','name','phone','level','confirm'];
 const STEP_LABELS = ['Data','Godzina','Imię','Telefon','Poziom','Potwierdź'];
@@ -982,7 +1090,13 @@ let wCalMonth, wCalYear;
 
 window.openWizard = function(){
   wStep = 0;
-  wData = {date:null, instructorId: currentUser.role==='instructor' ? currentUser.uid : null, instructorName: currentUser.role==='instructor' ? currentUser.name : null, time:null, name:'', countryCode:'+48', phone:'', level:null};
+  wData = {
+    date:null,
+    instructorId: currentUser.role==='instructor' ? currentUser.uid : null,
+    instructorName: currentUser.role==='instructor' ? currentUser.name : null,
+    time:null, name:'', countryCode:'+48', phone:'', level:null,
+    lessonType:'individual', groupSize:2, paymentStatus:'unpaid', notes:''
+  };
   const d = new Date(); wCalMonth = d.getMonth(); wCalYear = d.getFullYear();
   document.getElementById('wizard-overlay').classList.add('active');
   renderLiftTrack();
@@ -1002,14 +1116,17 @@ function renderLiftTrack(){
   document.getElementById('lift-chair').style.left = `calc(${pct}% + 34px - 10px)`;
 }
 
-function wizardNav(nextEnabled){
-  document.getElementById('wizard-footer').innerHTML = `
-    ${wStep>0 ? `<button class="btn btn-outline" onclick="wizardBack()">Wstecz</button>` : `<button class="btn btn-outline" onclick="closeWizard()">Anuluj</button>`}
-    <button class="btn btn-primary" id="wizard-next-btn" ${nextEnabled?'':'disabled'} onclick="${wStep===STEPS.length-1?'submitWizard()':'wizardNext()'}">${wStep===STEPS.length-1?'Zatwierdź':'Dalej'}</button>
-  `;
+// Builds the Wstecz/Dalej button row embedded right under each step's content.
+function actionsHtml(nextEnabled, isLast){
+  const backBtn = wStep>0
+    ? `<button class="btn btn-outline" onclick="wizardStepBack()">Wstecz</button>`
+    : `<button class="btn btn-outline" onclick="closeWizard()">Anuluj</button>`;
+  const nextBtn = `<button class="btn btn-primary" id="wizard-next-btn" ${nextEnabled?'':'disabled'} onclick="${isLast?'submitWizard()':'wizardStepNext()'}">${isLast?'Zatwierdź zapis':'Dalej'}</button>`;
+  return `<div class="wizard-actions">${backBtn}${nextBtn}</div>`;
 }
-window.wizardBack = function(){ wStep--; renderLiftTrack(); renderWizardStep(); };
-window.wizardNext = function(){ wStep++; renderLiftTrack(); renderWizardStep(); };
+
+window.wizardStepBack = function(){ wStep--; renderLiftTrack(); renderWizardStep(); };
+window.wizardStepNext = function(){ wStep++; renderLiftTrack(); renderWizardStep(); };
 
 function renderWizardStep(){
   const body = document.getElementById('wizard-body');
@@ -1020,14 +1137,14 @@ function renderWizardStep(){
       <h2>Wybierz datę</h2>
       <div class="wizard-hint">Na jaki dzień zapisujemy kursanta?</div>
       <div class="big-cal" id="w-big-cal"></div>
+      ${actionsHtml(!!wData.date, false)}
     </div>`;
     renderWizardCal();
-    wizardNav(!!wData.date);
     return;
   }
 
   if(step==='time'){
-    const dayLessons = lessons.filter(l=>l.date===wData.date);
+    const dayLessons = lessons.filter(l=>l.date===wData.date && l.status!=='cancelled');
     const needInstructorPick = currentUser.role==='operator';
     let instrHtml = '';
     if(needInstructorPick){
@@ -1051,8 +1168,8 @@ function renderWizardStep(){
           return `<div class="slot ${taken?'taken':''} ${wData.time===s?'selected':''}" onclick="pickTime('${s}')">${s}</div>`;
         }).join('')}
       </div>
+      ${actionsHtml(!!wData.time && !!wData.instructorId, false)}
     </div>`;
-    wizardNav(!!wData.time && !!wData.instructorId);
     return;
   }
 
@@ -1060,10 +1177,10 @@ function renderWizardStep(){
     body.innerHTML = `<div class="wizard-panel">
       <h2>Imię ucznia</h2>
       <div class="wizard-hint">Jak nazywa się kursant?</div>
-      <input class="big-input" id="w-name" placeholder="Imię i nazwisko" value="${wData.name}" autocomplete="off" oninput="wData.name=this.value; wizardNav(this.value.trim().length>1);">
+      <input class="big-input" id="w-name" placeholder="Imię i nazwisko" value="${wData.name}" autocomplete="off" oninput="onNameFieldInput(this)">
+      ${actionsHtml(wData.name.trim().length>1, false)}
     </div>`;
     setTimeout(()=>document.getElementById('w-name')?.focus(), 50);
-    wizardNav(wData.name.trim().length>1);
     return;
   }
 
@@ -1073,16 +1190,15 @@ function renderWizardStep(){
       <h2>Telefon kontaktowy</h2>
       <div class="wizard-hint">Numer do wysyłki przypomnień SMS</div>
       <div class="phone-row">
-        <select id="w-cc" onchange="wData.countryCode=this.value; wData.phone=''; renderWizardStep();">
+        <select id="w-cc" onchange="onCountryChange(this)">
           ${COUNTRY_CODES.map(c=>`<option value="${c.code}" ${wData.countryCode===c.code?'selected':''}>${c.label}</option>`).join('')}
         </select>
-        <input class="big-input" id="w-phone" placeholder="${'9'.repeat(cc.digits)}" value="${wData.phone}" inputmode="numeric" maxlength="${cc.digits}"
-          oninput="this.value=this.value.replace(/\\D/g,'').slice(0,${cc.digits}); wData.phone=this.value; validatePhoneStep();">
+        <input class="big-input" id="w-phone" placeholder="${'9'.repeat(cc.digits)}" value="${wData.phone}" inputmode="numeric" maxlength="${cc.digits}" oninput="onPhoneFieldInput(this)">
       </div>
       <div class="field-error" id="w-phone-err"></div>
+      ${actionsHtml(wData.phone.length===cc.digits, false)}
     </div>`;
     setTimeout(()=>document.getElementById('w-phone')?.focus(), 50);
-    validatePhoneStep();
     return;
   }
 
@@ -1096,13 +1212,14 @@ function renderWizardStep(){
           <div class="level-text"><b>${l.label}</b><span>${l.desc}</span></div>
         </div>`).join('')}
       </div>
+      ${actionsHtml(!!wData.level, false)}
     </div>`;
-    wizardNav(!!wData.level);
     return;
   }
 
   if(step==='confirm'){
     const lv = levelMeta(wData.level);
+    const price = settings.basePrice * (wData.lessonType==='group' ? wData.groupSize : 1);
     body.innerHTML = `<div class="wizard-panel">
       <h2>Potwierdź zapis</h2>
       <div class="wizard-hint">Sprawdź dane przed zapisaniem</div>
@@ -1114,11 +1231,35 @@ function renderWizardStep(){
           <div class="summary-row"><span class="k">Uczeń</span><span class="v">${wData.name}</span></div>
           <div class="summary-row"><span class="k">Telefon</span><span class="v">${wData.countryCode} ${wData.phone}</span></div>
           <div class="summary-row"><span class="k">Poziom</span><span class="v" style="color:${cssColor(lv.key)}">${lv.n} — ${lv.label}</span></div>
-          <div class="summary-row"><span class="k">Cena</span><span class="v">${fmtMoney(settings.basePrice)}</span></div>
+          <div class="summary-row"><span class="k">Cena</span><span class="v">${fmtMoney(price)}${wData.lessonType==='group'?` (za ${wData.groupSize} os.)`:''}</span></div>
+        </div>
+
+        <div class="optional-block">
+          <div class="opt-label">Typ zajęć</div>
+          <div class="choice-row">
+            <div class="choice-chip ${wData.lessonType==='individual'?'selected':''}" onclick="setLessonType('individual')">Indywidualne</div>
+            <div class="choice-chip ${wData.lessonType==='group'?'selected':''}" onclick="setLessonType('group')">Grupowe</div>
+          </div>
+          ${wData.lessonType==='group' ? `
+          <div class="field" style="max-width:160px;margin-bottom:14px;">
+            <label>Liczba uczestników</label>
+            <input type="number" min="2" max="12" value="${wData.groupSize}" oninput="onGroupSizeInput(this)">
+          </div>` : ''}
+
+          <div class="opt-label">Płatność</div>
+          <div class="choice-row">
+            <div class="choice-chip ${wData.paymentStatus==='unpaid'?'selected pay-warn':''}" onclick="setPaymentStatus('unpaid')">Do zapłaty</div>
+            <div class="choice-chip ${wData.paymentStatus==='paid'?'selected pay-ok':''}" onclick="setPaymentStatus('paid')">Zapłacono</div>
+          </div>
+
+          <div class="opt-label">Uwagi (opcjonalnie)</div>
+          <div class="field" style="margin-bottom:0;">
+            <textarea rows="2" placeholder="Sprzęt, kontuzje, uwagi dla instruktora…" oninput="onNotesInput(this)">${wData.notes}</textarea>
+          </div>
         </div>
       </div>
+      ${actionsHtml(true, true)}
     </div>`;
-    wizardNav(true);
     return;
   }
 }
@@ -1152,17 +1293,42 @@ window.wCalNav = function(dir){
   if(wCalMonth>11){wCalMonth=0;wCalYear++;}
   renderWizardCal();
 };
-window.pickDate = function(iso){ wData.date = iso; renderWizardCal(); wizardNav(true); };
+
+/* --- Step interaction handlers: every one is exposed on window because
+   inline HTML attributes cannot see module-scope variables/functions --- */
+window.pickDate = function(iso){ wData.date = iso; renderWizardCal(); document.getElementById('wizard-next-btn').disabled = false; };
 window.pickInstructor = function(uid, name){ wData.instructorId = uid; wData.instructorName = name; wData.time = null; renderWizardStep(); };
 window.pickTime = function(t){ wData.time = t; renderWizardStep(); };
 window.pickLevel = function(n){ wData.level = n; renderWizardStep(); };
-window.validatePhoneStep = function(){
-  const cc = COUNTRY_CODES.find(c=>c.code===wData.countryCode);
-  const errEl = document.getElementById('w-phone-err');
-  const valid = wData.phone.length === cc.digits;
-  if(errEl) errEl.textContent = (wData.phone.length>0 && !valid) ? `Numer musi mieć ${cc.digits} cyfr.` : '';
-  wizardNav(valid);
+
+window.onNameFieldInput = function(el){
+  wData.name = el.value;
+  const btn = document.getElementById('wizard-next-btn');
+  if(btn) btn.disabled = el.value.trim().length <= 1;
 };
+
+window.onCountryChange = function(sel){
+  wData.countryCode = sel.value;
+  wData.phone = '';
+  renderWizardStep();
+};
+
+window.onPhoneFieldInput = function(el){
+  const cc = COUNTRY_CODES.find(c=>c.code===wData.countryCode);
+  const digits = el.value.replace(/\D/g,'').slice(0, cc.digits);
+  el.value = digits;
+  wData.phone = digits;
+  const valid = digits.length === cc.digits;
+  const errEl = document.getElementById('w-phone-err');
+  if(errEl) errEl.textContent = (digits.length>0 && !valid) ? `Numer musi mieć ${cc.digits} cyfr.` : '';
+  const btn = document.getElementById('wizard-next-btn');
+  if(btn) btn.disabled = !valid;
+};
+
+window.setLessonType = function(type){ wData.lessonType = type; renderWizardStep(); };
+window.onGroupSizeInput = function(el){ wData.groupSize = Math.max(2, Number(el.value)||2); };
+window.setPaymentStatus = function(status){ wData.paymentStatus = status; renderWizardStep(); };
+window.onNotesInput = function(el){ wData.notes = el.value; };
 
 window.submitWizard = async function(){
   const btn = document.getElementById('wizard-next-btn');
@@ -1180,6 +1346,11 @@ window.submitWizard = async function(){
       level: wData.level,
       clientPrice: settings.basePrice,
       instructorPay: instructorPay,
+      lessonType: wData.lessonType,
+      groupSize: wData.lessonType==='group' ? wData.groupSize : 1,
+      paymentStatus: wData.paymentStatus,
+      notes: wData.notes.trim(),
+      status: 'planned',
       reminderSent: false,
       createdBy: currentUser.uid,
       createdAt: serverTimestamp()
