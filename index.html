@@ -46,7 +46,7 @@
   --font-body:'Inter',sans-serif;
 }
 *{box-sizing:border-box;}
-html,body{margin:0;padding:0;height:100%;}
+html,body{margin:0;padding:0;height:100%;overflow-x:hidden;}
 body{
   font-family:var(--font-body);
   background:var(--navy);
@@ -240,10 +240,27 @@ input,select,textarea{font-family:inherit;}
 .nav-item:hover{background:rgba(255,255,255,0.05);}
 .nav-item-logout{color:var(--danger);margin-top:6px;}
 .nav-item-logout:hover{background:rgba(230,57,70,0.12);}
-@media(max-width:640px){.nav-item-logout{margin-top:0;order:99;}}
 .sidebar-footer{margin-top:auto;padding-top:14px;border-top:1px solid var(--navy-3);}
 .sidebar-user{font-size:13px;color:var(--mist-dim);padding:0 6px 10px;}
 .sidebar-user b{color:var(--snow);display:block;font-size:14px;}
+
+/* Mobile top bar: replaces the old cramped bottom icon row. Tapping the
+   menu button opens the sidebar as a full, readable slide-in drawer. */
+#mobile-topbar{
+  display:none; align-items:center; gap:14px;
+  position:sticky; top:0; z-index:45;
+  background:var(--navy-2); border-bottom:1px solid var(--navy-3);
+  padding:14px 16px;
+}
+.menu-btn{
+  background:var(--navy-3); border:none; color:#fff; border-radius:9px;
+  width:40px; height:40px; font-size:19px; flex-shrink:0; display:flex; align-items:center; justify-content:center;
+}
+#mobile-page-title{font-family:var(--font-display);font-size:19px;text-transform:uppercase;flex:1;}
+.mobile-logout-btn{background:transparent;border:none;color:var(--danger);font-size:20px;flex-shrink:0;padding:8px;}
+.drawer-close-btn{display:none;background:var(--navy-3);border:none;color:#fff;border-radius:8px;width:32px;height:32px;font-size:16px;margin-left:auto;align-items:center;justify-content:center;}
+#drawer-backdrop{display:none;position:fixed;inset:0;background:rgba(5,12,20,0.6);z-index:65;}
+#drawer-backdrop.active{display:block;}
 
 .main{flex:1;min-width:0;padding:28px 32px 60px;max-width:1140px;}
 .page-head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:22px;}
@@ -257,15 +274,31 @@ input,select,textarea{font-family:inherit;}
   padding:20px;
   margin-bottom:18px;
   box-shadow:var(--shadow-sm);
+  min-width:0;
 }
 .card h3{font-size:20px;margin-bottom:14px;}
-.grid{display:grid;gap:14px;}
-.grid-2{grid-template-columns:1fr 1fr;}
-.grid-3{grid-template-columns:repeat(3,1fr);}
-.grid-4{grid-template-columns:repeat(4,1fr);}
-.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:18px;}
-@media(max-width:900px){.grid-2,.grid-3,.grid-4{grid-template-columns:1fr 1fr;}}
-@media(max-width:640px){.grid-2,.grid-3,.grid-4{grid-template-columns:1fr;} .sidebar{position:fixed;left:0;bottom:0;top:auto;width:100%;height:auto;flex-direction:row;overflow-x:auto;border-right:none;border-top:1px solid var(--navy-3);padding:8px;z-index:40;box-shadow:0 -6px 20px rgba(0,0,0,0.3);} .sidebar .brand,.sidebar-footer,.sidebar-user{display:none;} .nav-item{flex-direction:column;font-size:10px;gap:3px;white-space:nowrap;padding:8px 10px;} .nav-item.active::before{left:50%;top:auto;bottom:0;transform:translateX(-50%);width:22px;height:3px;border-radius:3px 3px 0 0;} .main{padding:18px 16px 110px;}}
+.grid{display:grid;gap:14px;min-width:0;}
+.grid-2{grid-template-columns:minmax(0,1fr) minmax(0,1fr);}
+.grid-3{grid-template-columns:repeat(3,minmax(0,1fr));}
+.grid-4{grid-template-columns:repeat(4,minmax(0,1fr));}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:14px;margin-bottom:18px;min-width:0;}
+@media(max-width:900px){.grid-2,.grid-3,.grid-4{grid-template-columns:minmax(0,1fr) minmax(0,1fr);}}
+@media(max-width:640px){
+  .grid-2,.grid-3,.grid-4{grid-template-columns:minmax(0,1fr);}
+  #app-shell{flex-direction:column;}
+  #mobile-topbar{display:flex;}
+  .main{padding:16px 14px 40px;}
+  .sidebar{
+    position:fixed; left:0; top:0; bottom:0; width:280px; max-width:85vw; height:100vh;
+    transform:translateX(-105%); transition:transform .25s ease;
+    flex-direction:column; overflow-y:auto;
+    border-right:1px solid var(--navy-3); border-top:none;
+    box-shadow:12px 0 40px rgba(0,0,0,0.45);
+    z-index:70;
+  }
+  .sidebar.drawer-open{transform:translateX(0);}
+  .drawer-close-btn{display:flex;}
+}
 
 .stat{background:var(--navy);border:1px solid var(--navy-3);border-left:3px solid var(--ice);border-radius:11px;padding:16px;position:relative;overflow:hidden;}
 .stat .num{font-family:var(--font-display);font-size:32px;font-weight:800;}
@@ -308,7 +341,7 @@ tbody tr:hover{background:rgba(255,255,255,0.035);}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
 /* mini calendar (dashboard views) */
-.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;min-width:0;}
 .cal-dow{font-size:11px;text-align:center;color:var(--mist-dim);font-weight:700;text-transform:uppercase;}
 .cal-cell{
   aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -351,7 +384,7 @@ tbody tr:hover{background:rgba(255,255,255,0.035);}
 .big-cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
 .big-cal-head button{background:var(--navy-3);border:none;color:#fff;width:36px;height:36px;border-radius:9px;font-size:18px;}
 .big-cal-head .month{font-family:var(--font-display);font-size:20px;text-transform:uppercase;}
-.big-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;}
+.big-cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;min-width:0;}
 .big-cal-cell{
   aspect-ratio:1;display:flex;align-items:center;justify-content:center;
   border-radius:10px;background:var(--navy);border:1px solid var(--navy-3);font-size:15px;font-weight:600;color:var(--snow);
@@ -364,7 +397,7 @@ tbody tr:hover{background:rgba(255,255,255,0.035);}
 .instr-chip{flex-shrink:0;padding:10px 16px;border-radius:11px;background:var(--navy-2);border:1.5px solid var(--navy-3);font-weight:700;font-size:14px;white-space:nowrap;}
 .instr-chip.selected{background:var(--ice);border-color:var(--ice);color:#fff;}
 
-.slot-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+.slot-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;min-width:0;}
 .slot{padding:14px 6px;text-align:center;border-radius:11px;background:var(--navy-2);border:1.5px solid var(--navy-3);font-family:var(--font-display);font-size:18px;font-weight:700;}
 .slot.taken{opacity:0.28;pointer-events:none;text-decoration:line-through;}
 .slot.selected{background:var(--ice);border-color:var(--ice);color:#fff;}
@@ -456,14 +489,20 @@ tbody tr:hover{background:rgba(255,255,255,0.035);}
 
 <!-- ================= APP SHELL ================= -->
 <div id="app-shell">
+  <div id="mobile-topbar">
+    <button class="menu-btn" onclick="toggleMobileDrawer()" aria-label="Menu">☰</button>
+    <div id="mobile-page-title">Zapisy</div>
+    <button class="mobile-logout-btn" onclick="doLogout()" aria-label="Wyloguj">🚪</button>
+  </div>
   <nav class="sidebar">
-    <div class="brand">🏔️ Szkółka<span>Panel zarządzania</span></div>
+    <div class="brand">🏔️ Szkółka<span>Panel zarządzania</span><button class="drawer-close-btn" onclick="closeMobileDrawer()">✕</button></div>
     <div id="nav-items"></div>
     <div class="sidebar-footer">
-      <div class="sidebar-user"><b id="sidebar-username">—</b><span id="sidebar-role-label"></span></div>
+      <div class="sidebar-user"><b class="user-name-display">—</b><span class="user-role-display"></span></div>
       <div class="app-version" style="font-size:10.5px;color:var(--mist-dim);text-align:center;margin-top:6px;"></div>
     </div>
   </nav>
+  <div id="drawer-backdrop" onclick="closeMobileDrawer()"></div>
   <div class="main" id="main-content"></div>
 </div>
 
@@ -608,8 +647,19 @@ if ('serviceWorker' in navigator) {
            zgłaszanie nieobecności instruktora (cały dzień lub część dnia)
            z poziomu operatora i samego instruktora, uwzględniane przy
            generowaniu dostępnych godzin i pokazywane jako baner w Zapisach
+   1.5.1 — naprawiono poważny błąd układu na telefonach: siatki (kalendarz,
+           godziny zajęć, karty statystyk) potrafiły "rozjechać się" szerzej
+           niż ekran, robiąc olbrzymie, nieczytelne kwadraty i wymuszając
+           niewidoczny scroll w bok — całą stronę dotykało to na wąskich
+           ekranach. Przyczyna: CSS Grid domyślnie nie kurczy kolumn poniżej
+           szerokości ich zawartości; naprawione we wszystkich siatkach
+           w aplikacji
+   1.6.0 — przeprojektowana nawigacja mobilna: zamiast ściśniętego paska
+           z 7 małymi ikonami na dole, teraz jest górny pasek z przyciskiem
+           menu (☰), który otwiera pełnoekranowy, czytelny panel z pełnymi
+           nazwami zakładek — tak samo czytelny jak na komputerze
 ===================================================================== */
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.6.0';
 document.querySelectorAll('.app-version').forEach(el => el.textContent = 'v' + APP_VERSION);
 
 const LEVELS = [
@@ -759,8 +809,8 @@ onAuthStateChanged(auth, async (user)=>{
   currentUser = {uid:user.uid, ...profile};
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app-shell').classList.add('active');
-  document.getElementById('sidebar-username').textContent = currentUser.name || currentUser.email;
-  document.getElementById('sidebar-role-label').textContent = currentUser.role==='operator' ? 'Operator' : 'Instruktor';
+  document.querySelectorAll('.user-name-display').forEach(el=>el.textContent = currentUser.name || currentUser.email);
+  document.querySelectorAll('.user-role-display').forEach(el=>el.textContent = currentUser.role==='operator' ? 'Operator' : 'Instruktor');
   await loadSettings();
   subscribeInstructors();
   subscribeLessons();
@@ -942,8 +992,19 @@ function renderNav(){
   nav.innerHTML = items.map(([key,icon,label])=>
     `<button class="nav-item ${currentPage===key?'active':''}" onclick="goTo('${key}')">${icon} ${label}</button>`
   ).join('') + `<button class="nav-item nav-item-logout" onclick="doLogout()">🚪 Wyloguj</button>`;
+  const current = items.find(([key])=>key===currentPage);
+  const titleEl = document.getElementById('mobile-page-title');
+  if(titleEl && current) titleEl.textContent = current[2];
 }
-window.goTo = function(page){ currentPage = page; renderNav(); renderPage(); };
+window.goTo = function(page){ currentPage = page; closeMobileDrawer(); renderNav(); renderPage(); };
+window.toggleMobileDrawer = function(){
+  document.querySelector('.sidebar').classList.toggle('drawer-open');
+  document.getElementById('drawer-backdrop').classList.toggle('active');
+};
+window.closeMobileDrawer = function(){
+  document.querySelector('.sidebar').classList.remove('drawer-open');
+  document.getElementById('drawer-backdrop').classList.remove('active');
+};
 
 /* ============ PAGE ROUTER ============ */
 function renderPage(){
