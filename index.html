@@ -528,6 +528,11 @@ tbody tr:hover{background:rgba(255,255,255,0.035);}
   <div class="modal" style="max-width:640px;" id="student-modal-content"></div>
 </div>
 
+<!-- ================= MODAL (report instructor absence) ================= -->
+<div class="modal-backdrop" id="absence-modal-backdrop">
+  <div class="modal" id="absence-modal-content"></div>
+</div>
+
 <script type="module">
 /* =====================================================================
    FIREBASE SETUP — patrz SETUP.md dla pełnej instrukcji.
@@ -596,8 +601,15 @@ if ('serviceWorker' in navigator) {
            lub samodzielnie przez instruktora), uwzględniane przy
            generowaniu dostępnych godzin w kreatorze zapisu; naprawiono
            generowanie slotów czasowych dla czasu zajęć innego niż 60 min
+   1.5.0 — edytowalna, dokładna godzina zajęć przy zapisie (dla sytuacji
+           nadzwyczajnych); model przerw zapisany w Ustawieniach: 55 min
+           zajęć + 5 min przerwy między zajęciami oraz globalna przerwa
+           obiadowa o 13:00 (30 min) — obie wartości łatwo zmienić;
+           zgłaszanie nieobecności instruktora (cały dzień lub część dnia)
+           z poziomu operatora i samego instruktora, uwzględniane przy
+           generowaniu dostępnych godzin i pokazywane jako baner w Zapisach
 ===================================================================== */
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.5.0';
 document.querySelectorAll('.app-version').forEach(el => el.textContent = 'v' + APP_VERSION);
 
 const LEVELS = [
@@ -628,11 +640,15 @@ let instructors = [];     // all instructor profiles
 let lessons = [];         // all lessons (live)
 let studentNotes = {};    // phone -> {notes, updatedByName, updatedAt}
 let studentSearchQuery = '';
-let settings = {basePrice:120, instructorRateDefault:60, lessonDuration:55, dayStart:9, dayEnd:16, smsWebhookUrl:''};
+let absences = [];        // reported instructor unavailability (all-day or partial)
+let unsubAbsences = null;
+let settings = {basePrice:120, instructorRateDefault:60, lessonDuration:55, dayStart:9, dayEnd:16, smsWebhookUrl:'', breakBetweenLessons:5, lunchBreakEnabled:true, lunchBreakStart:'13:00', lunchBreakDuration:30};
 let currentPage = 'zapisy';
 
 /* ============ HELPERS ============ */
 function pad(n){return String(n).padStart(2,'0');}
+function toMinutes(hhmm){ const [h,m] = hhmm.split(':').map(Number); return h*60+(m||0); }
+function fromMinutes(min){ return `${pad(Math.floor(min/60))}:${pad(min%60)}`; }
 function todayISO(){const d=new Date();return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;}
 function showToast(msg){
   const t = document.getElementById('toast');
@@ -734,6 +750,7 @@ onAuthStateChanged(auth, async (user)=>{
     if(unsubUsers) unsubUsers();
     if(unsubLessons) unsubLessons();
     if(unsubStudents) unsubStudents();
+    if(unsubAbsences) unsubAbsences();
     return;
   }
   const snap = await getDoc(doc(db,'users',user.uid));
@@ -748,6 +765,7 @@ onAuthStateChanged(auth, async (user)=>{
   subscribeInstructors();
   subscribeLessons();
   subscribeStudents();
+  subscribeAbsences();
   renderNav();
   currentPage = 'zapisy';
   renderPage();
@@ -760,12 +778,17 @@ async function loadSettings(){
 }
 window.saveSettings = async function(){
   const basePrice = Number(document.getElementById('set-baseprice').value)||0;
-  const lessonDuration = Number(document.getElementById('set-duration').value)||60;
+  const lessonDuration = Number(document.getElementById('set-duration').value)||55;
   const dayStart = Number(document.getElementById('set-daystart').value)||9;
   const dayEnd = Number(document.getElementById('set-dayend').value)||16;
   const smsWebhookUrl = document.getElementById('set-smsurl').value.trim();
   const instructorRateDefault = Number(document.getElementById('set-instr-default').value)||0;
-  settings = {...settings, basePrice, lessonDuration, dayStart, dayEnd, smsWebhookUrl, instructorRateDefault};
+  const breakBetweenLessons = Math.max(0, Number(document.getElementById('set-break-between').value)||0);
+  const lunchBreakEnabled = document.getElementById('set-lunch-enabled').classList.contains('on');
+  const lunchBreakStart = document.getElementById('set-lunch-start').value || '13:00';
+  const lunchBreakDuration = Math.max(0, Number(document.getElementById('set-lunch-duration').value)||0);
+  settings = {...settings, basePrice, lessonDuration, dayStart, dayEnd, smsWebhookUrl, instructorRateDefault,
+    breakBetweenLessons, lunchBreakEnabled, lunchBreakStart, lunchBreakDuration};
   await setDoc(doc(db,'settings','general'), settings, {merge:true});
   showToast('Ustawienia zapisane');
   renderPage();
@@ -798,6 +821,108 @@ function subscribeStudents(){
     if(currentPage==='uczniowie') renderStudentsList();
   });
 }
+function subscribeAbsences(){
+  if(unsubAbsences) unsubAbsences();
+  unsubAbsences = onSnapshot(collection(db,'absences'), (qs)=>{
+    absences = [];
+    qs.forEach(d=>absences.push({id:d.id, ...d.data()}));
+    absences.sort((a,b)=>a.date.localeCompare(b.date));
+    renderPage();
+  });
+}
+function absencesFor(instructorId, dateIso){
+  return absences.filter(a=>a.instructorId===instructorId && a.date===dateIso);
+}
+function isAllDayAbsent(instructorId, dateIso){
+  return absencesFor(instructorId, dateIso).some(a=>a.allDay);
+}
+function absenceBlocksMinutes(instructorId, dateIso, minutes){
+  return absencesFor(instructorId, dateIso).some(a=>{
+    if(a.allDay) return true;
+    return minutes >= toMinutes(a.startTime) && minutes < toMinutes(a.endTime);
+  });
+}
+
+/* --- Absence modal: available both to operators (about any instructor)
+   and to instructors (about themselves) --- */
+let absenceModalInstructor = null;
+window.openAbsenceModal = function(uid, name){
+  absenceModalInstructor = {uid, name};
+  renderAbsenceModalContent();
+  document.getElementById('absence-modal-backdrop').classList.add('active');
+};
+window.closeAbsenceModal = function(){ document.getElementById('absence-modal-backdrop').classList.remove('active'); };
+
+function renderAbsenceModalContent(){
+  const {uid, name} = absenceModalInstructor;
+  const upcoming = absences.filter(a=>a.instructorId===uid && a.date>=todayISO()).sort((a,b)=>a.date.localeCompare(b.date));
+  const content = document.getElementById('absence-modal-content');
+  content.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+      <h3 style="font-size:21px;">🚫 Nieobecność — ${name}</h3>
+      <button class="wizard-close" style="font-size:24px;" onclick="closeAbsenceModal()">✕</button>
+    </div>
+    <div class="field"><label>Data</label><input type="date" id="ab-date" value="${todayISO()}"></div>
+    <div class="switch-row">
+      <div><b style="font-size:14.5px;">Cały dzień</b></div>
+      <div class="switch on" id="ab-allday" onclick="this.classList.toggle('on'); document.getElementById('ab-time-fields').style.display = this.classList.contains('on') ? 'none' : 'flex';"><div class="knob"></div></div>
+    </div>
+    <div id="ab-time-fields" style="display:none;gap:12px;margin-top:8px;">
+      <div class="field" style="flex:1;"><label>Od godz.</label><input type="time" id="ab-start" value="09:00"></div>
+      <div class="field" style="flex:1;"><label>Do godz.</label><input type="time" id="ab-end" value="12:00"></div>
+    </div>
+    <div class="field"><label>Powód (opcjonalnie)</label><input type="text" id="ab-reason" placeholder="np. choroba, sprawy losowe…"></div>
+    <button class="btn btn-primary btn-block" onclick="addAbsence()">🚫 Zgłoś nieobecność</button>
+
+    <div style="margin-top:24px;">
+      <div class="opt-label">Zgłoszone nieobecności (nadchodzące)</div>
+      ${upcoming.length===0 ? `<div style="color:var(--mist-dim);font-size:13.5px;">Brak zgłoszonych nieobecności.</div>` :
+        upcoming.map(a=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--navy-3);font-size:13.5px;gap:10px;">
+          <div><b>${fmtDatePL(a.date)}</b> — ${a.allDay ? 'cały dzień' : `${a.startTime}–${a.endTime}`}${a.reason?` <span style="color:var(--mist-dim);">(${a.reason})</span>`:''}</div>
+          <button class="icon-btn danger" onclick="deleteAbsence('${a.id}')">Usuń</button>
+        </div>`).join('')}
+    </div>
+  `;
+}
+
+window.addAbsence = async function(){
+  const date = document.getElementById('ab-date').value;
+  const allDay = document.getElementById('ab-allday').classList.contains('on');
+  const startTime = document.getElementById('ab-start').value;
+  const endTime = document.getElementById('ab-end').value;
+  const reason = document.getElementById('ab-reason').value.trim();
+  if(!date){ showToast('Wybierz datę'); return; }
+  if(!allDay && (!startTime || !endTime || startTime>=endTime)){ showToast('Podaj poprawny zakres godzin'); return; }
+
+  const conflicts = lessons.filter(l =>
+    l.instructorId===absenceModalInstructor.uid && l.date===date && l.status!=='cancelled' &&
+    (allDay || (toMinutes(l.time) < toMinutes(endTime) && toMinutes(l.time)+settings.lessonDuration > toMinutes(startTime)))
+  );
+  if(conflicts.length>0){
+    const ok = confirm(`Uwaga: ${conflicts.length} już zapisanych zajęć koliduje z tą nieobecnością (godz. ${conflicts.map(c=>c.time).join(', ')}). Nieobecność zostanie zapisana, ale te zajęcia trzeba będzie ręcznie przełożyć lub odwołać w zakładce Zapisy. Kontynuować?`);
+    if(!ok) return;
+  }
+  try{
+    await addDoc(collection(db,'absences'), {
+      instructorId: absenceModalInstructor.uid,
+      instructorName: absenceModalInstructor.name,
+      date, allDay,
+      startTime: allDay ? null : startTime,
+      endTime: allDay ? null : endTime,
+      reason, createdBy: currentUser.uid, createdAt: serverTimestamp()
+    });
+    showToast('Nieobecność zgłoszona');
+    renderAbsenceModalContent();
+  }catch(e){
+    showToast('Błąd zapisu — sprawdź reguły Firestore dla kolekcji "absences"');
+  }
+};
+window.deleteAbsence = async function(id){
+  if(!confirm('Usunąć zgłoszoną nieobecność?')) return;
+  await deleteDoc(doc(db,'absences',id));
+  showToast('Nieobecność usunięta');
+  renderAbsenceModalContent();
+};
 
 /* ============ NAV ============ */
 function renderNav(){
@@ -839,6 +964,7 @@ let calMonth = new Date().getMonth(), calYear = new Date().getFullYear(), calSel
 
 function renderCalendarPage(main){
   const dayLessons = lessons.filter(l=>l.date===calSelectedDate).sort((a,b)=>a.time.localeCompare(b.time));
+  const dayAbsences = absences.filter(a=>a.date===calSelectedDate);
   main.innerHTML = `
     <div class="page-head">
       <div><div class="page-sub">${currentUser.role==='operator'?'Wszystkie zajęcia':'Kalendarz wszystkich instruktorów'}</div><h1>Zapisy</h1></div>
@@ -851,6 +977,9 @@ function renderCalendarPage(main){
       </div>
       <div class="card">
         <h3>${fmtDatePL(calSelectedDate)}</h3>
+        ${dayAbsences.length>0 ? `<div style="background:rgba(230,57,70,0.1);border:1px solid rgba(230,57,70,0.35);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13.5px;">
+          ${dayAbsences.map(a=>`🚫 <b>${a.instructorName}</b> — nieobecny(a) ${a.allDay?'cały dzień':`${a.startTime}–${a.endTime}`}${a.reason?` <span style="color:var(--mist-dim);">(${a.reason})</span>`:''}`).join('<br>')}
+        </div>` : ''}
         <div id="day-list">
           ${dayLessons.length===0 ? `<div class="empty-state"><b>Brak zajęć</b>Wybierz inny dzień lub dodaj nowy zapis.</div>` :
           `<div class="table-wrap"><table><thead><tr><th>Godz.</th><th>Uczeń</th><th>Instruktor</th><th>Poz.</th><th>Typ</th><th>Płatność</th><th>Status</th><th></th></tr></thead><tbody>
@@ -1042,6 +1171,7 @@ function renderInstructorsPage(main){
         <td>${fmtMoney(i.pricePerLesson)}</td>
         <td>${i.canManageAll ? '<span class="badge" style="background:#2FA84F22;color:#2FA84F;">Zarządza wszystkim</span>' : '<span class="badge" style="background:#8FA4B822;color:#8FA4B8;">Tylko swoje</span>'}</td>
         <td><div class="actions-cell"><button class="icon-btn" onclick="openInstructorModal('${i.uid}')">Edytuj</button>
+        <button class="icon-btn" onclick="openAbsenceModal('${i.uid}','${i.name.replace(/'/g,"\\'")}')">🚫 Nieobecność</button>
         <button class="icon-btn danger" onclick="removeInstructor('${i.uid}')">Usuń</button></div></td>
       </tr>`).join('')}
       </tbody></table></div>`}
@@ -1185,6 +1315,11 @@ function renderMyStatsPage(main){
       <div style="color:var(--mist-dim);font-size:13px;margin-top:10px;">To wpływa na to, które godziny operator i Ty widzicie jako wolne przy nowym zapisie.</div>
     </div>
     <div class="card">
+      <h3>Nieobecność</h3>
+      <div style="color:var(--mist-dim);font-size:13px;margin-bottom:14px;">Choroba, sprawy losowe — wykreśl się z zajęć na cały dzień lub jego część, żeby te godziny przestały być widoczne jako wolne przy nowych zapisach.</div>
+      <button class="btn btn-outline" onclick="openAbsenceModal('${currentUser.uid}','${(currentUser.name||'').replace(/'/g,"\\'")}')">🚫 Zgłoś nieobecność</button>
+    </div>
+    <div class="card">
       <h3>Ostatnie zajęcia</h3>
       ${mine.length===0 ? `<div class="empty-state"><b>Brak zajęć</b></div>` :
       `<div class="table-wrap"><table><thead><tr><th>Data</th><th>Godz.</th><th>Uczeń</th><th>Poziom</th><th>Status</th><th>Wypłata</th></tr></thead><tbody>
@@ -1268,6 +1403,24 @@ function renderSettingsPage(main){
         <label>Własna wartość (min)</label>
         <input type="number" min="10" max="240" step="5" id="set-duration" value="${settings.lessonDuration}" oninput="highlightDurationPreset()">
       </div>
+
+      <div class="opt-label" style="margin-top:14px;">Przerwa między zajęciami dla instruktora</div>
+      <div class="field" style="max-width:160px;">
+        <label>Minuty przerwy po każdych zajęciach</label>
+        <input type="number" min="0" max="60" step="5" id="set-break-between" value="${settings.breakBetweenLessons}">
+      </div>
+      <div style="color:var(--mist-dim);font-size:12.5px;margin-top:-6px;margin-bottom:14px;">Domyślnie: 55 min zajęć + 5 min przerwy = kolejne zajęcia zaczynają się co 60 min. Zmień w wyjątkowych sytuacjach.</div>
+
+      <div class="opt-label">Przerwa obiadowa</div>
+      <div class="switch-row" style="max-width:340px;">
+        <div><b style="font-size:14.5px;">Włączona</b></div>
+        <div class="switch ${settings.lunchBreakEnabled?'on':''}" id="set-lunch-enabled" onclick="this.classList.toggle('on')"><div class="knob"></div></div>
+      </div>
+      <div class="grid grid-2" style="max-width:340px;margin-top:8px;">
+        <div class="field"><label>Godzina rozpoczęcia</label><input type="time" id="set-lunch-start" value="${settings.lunchBreakStart}"></div>
+        <div class="field"><label>Długość (min)</label><input type="number" min="5" max="120" step="5" id="set-lunch-duration" value="${settings.lunchBreakDuration}"></div>
+      </div>
+
       <button class="btn btn-primary" onclick="saveSettings()">Zapisz ustawienia</button>
     </div>
 
@@ -1371,21 +1524,31 @@ function renderWizardStep(){
   if(step==='time'){
     const dayLessons = lessons.filter(l=>l.date===wData.date && l.status!=='cancelled');
     const needInstructorPick = currentUser.role==='operator';
+    const absentAllDay = wData.instructorId ? isAllDayAbsent(wData.instructorId, wData.date) : false;
     let instrHtml = '';
     if(needInstructorPick){
-      instrHtml = `<div class="instr-pick">${instructors.map(i=>`
-        <div class="instr-chip ${wData.instructorId===i.uid?'selected':''}" onclick="pickInstructor('${i.uid}','${i.name.replace(/'/g,"\\'")}')">${i.name}</div>
-      `).join('') || '<div style="color:var(--mist-dim);font-size:13px;">Brak instruktorów — dodaj ich w panelu Instruktorzy.</div>'}</div>`;
+      instrHtml = `<div class="instr-pick">${instructors.map(i=>{
+        const absent = isAllDayAbsent(i.uid, wData.date);
+        return `<div class="instr-chip ${wData.instructorId===i.uid?'selected':''}" onclick="pickInstructor('${i.uid}','${i.name.replace(/'/g,"\\'")}')">${absent?'🚫 ':''}${i.name}</div>`;
+      }).join('') || '<div style="color:var(--mist-dim);font-size:13px;">Brak instruktorów — dodaj ich w panelu Instruktorzy.</div>'}</div>`;
     }
 
-    // continuous slots spaced by lessonDuration across the working day (not reset each hour)
+    // continuous slots spaced by lessonDuration + przerwa między zajęciami (domyślnie 55 + 5 = co 60 min)
     const dayStartMin = settings.dayStart*60, dayEndMin = settings.dayEnd*60;
+    const cadence = settings.lessonDuration + (settings.breakBetweenLessons||0);
     const slots = [];
-    for(let t=dayStartMin; t+settings.lessonDuration<=dayEndMin; t+=settings.lessonDuration){
-      slots.push({time:`${pad(Math.floor(t/60))}:${pad(t%60)}`, minutes:t});
+    for(let t=dayStartMin; t+settings.lessonDuration<=dayEndMin; t+=cadence){
+      slots.push({time:fromMinutes(t), minutes:t});
     }
 
-    // per-instructor daily hour limit + break window
+    // globalna przerwa obiadowa
+    let lunchStartMin=null, lunchEndMin=null;
+    if(settings.lunchBreakEnabled){
+      lunchStartMin = toMinutes(settings.lunchBreakStart||'13:00');
+      lunchEndMin = lunchStartMin + (settings.lunchBreakDuration||30);
+    }
+
+    // per-instructor daily hour limit + osobista przerwa
     const selectedInstructor = instructors.find(i=>i.uid===wData.instructorId) || (currentUser.role==='instructor' ? currentUser : null);
     const instructorBookedCount = wData.instructorId ? dayLessons.filter(l=>l.instructorId===wData.instructorId).length : 0;
     const maxHoursPerDay = selectedInstructor?.maxHoursPerDay || null;
@@ -1398,8 +1561,10 @@ function renderWizardStep(){
     }
 
     const hintParts = [];
+    if(lunchStartMin!==null) hintParts.push(`Przerwa obiadowa: ${fromMinutes(lunchStartMin)}–${fromMinutes(lunchEndMin)}`);
     if(maxHoursPerDay) hintParts.push(`Limit dzienny instruktora: ${instructorBookedCount}/${maxSlotsPerDay} zajęć (${maxHoursPerDay} h)`);
-    if(breakStartMin!==null) hintParts.push(`Przerwa: ${pad(Math.floor(breakStartMin/60))}:${pad(breakStartMin%60)}–${pad(Math.floor(breakEndMin/60))}:${pad(breakEndMin%60)}`);
+    if(breakStartMin!==null) hintParts.push(`Przerwa instruktora: ${fromMinutes(breakStartMin)}–${fromMinutes(breakEndMin)}`);
+    if(absentAllDay) hintParts.push(`🚫 Instruktor zgłosił nieobecność cały dzień`);
 
     body.innerHTML = `<div class="wizard-panel">
       <h2>Godzina zajęć</h2>
@@ -1408,13 +1573,25 @@ function renderWizardStep(){
       <div class="slot-grid" id="w-slots">
         ${slots.map(s=>{
           const taken = dayLessons.some(l=>l.time===s.time && l.instructorId===wData.instructorId);
+          const inLunch = lunchStartMin!==null && s.minutes>=lunchStartMin && s.minutes<lunchEndMin;
           const inBreak = breakStartMin!==null && s.minutes>=breakStartMin && s.minutes<breakEndMin;
+          const inAbsence = wData.instructorId && absenceBlocksMinutes(wData.instructorId, wData.date, s.minutes);
           const overLimit = limitReached && !taken;
-          const unavailable = taken || inBreak || overLimit;
-          return `<div class="slot ${unavailable?'taken':''} ${wData.time===s.time?'selected':''}" onclick="pickTime('${s.time}')" title="${inBreak?'Przerwa instruktora':overLimit?'Dzienny limit godzin osiągnięty':''}">${s.time}</div>`;
+          const unavailable = taken || inLunch || inBreak || overLimit || inAbsence;
+          const reason = inAbsence?'Nieobecność instruktora':inLunch?'Przerwa obiadowa':inBreak?'Przerwa instruktora':overLimit?'Dzienny limit godzin osiągnięty':'';
+          return `<div class="slot ${unavailable?'taken':''} ${wData.time===s.time?'selected':''}" onclick="pickTime('${s.time}')" title="${reason}">${s.time}</div>`;
         }).join('')}
       </div>
       ${hintParts.length ? `<div style="margin-top:10px;font-size:12.5px;color:var(--mist-dim);">${hintParts.join(' · ')}</div>` : ''}
+
+      <div class="optional-block">
+        <div class="opt-label">Inna godzina (sytuacja nadzwyczajna)</div>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <input type="time" id="w-custom-time" style="flex:1;padding:12px 14px;background:var(--navy-2);border:1.5px solid var(--navy-3);border-radius:9px;color:var(--snow);font-size:15px;" value="${wData.time&&!slots.some(s=>s.time===wData.time)?wData.time:''}" oninput="onCustomTimeInput(this)">
+        </div>
+        <div style="color:var(--mist-dim);font-size:12px;margin-top:6px;">Pomija siatkę godzin powyżej — użyj tylko w wyjątkowych przypadkach.</div>
+      </div>
+
       ${actionsHtml(!!wData.time && !!wData.instructorId, false)}
     </div>`;
     return;
@@ -1558,6 +1735,12 @@ window.wCalNav = function(dir){
 window.pickDate = function(iso){ wData.date = iso; renderWizardCal(); document.getElementById('wizard-next-btn').disabled = false; };
 window.pickInstructor = function(uid, name){ wData.instructorId = uid; wData.instructorName = name; wData.time = null; renderWizardStep(); };
 window.pickTime = function(t){ wData.time = t; renderWizardStep(); };
+window.onCustomTimeInput = function(el){
+  wData.time = el.value || null;
+  const btn = document.getElementById('wizard-next-btn');
+  if(btn) btn.disabled = !(wData.time && wData.instructorId);
+  document.querySelectorAll('#w-slots .slot').forEach(s=>s.classList.remove('selected'));
+};
 window.pickLevel = function(n){ wData.level = n; renderWizardStep(); };
 
 window.onNameFieldInput = function(el){
