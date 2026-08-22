@@ -709,8 +709,14 @@ if ('serviceWorker' in navigator) {
              terminy w grafiku
            • brak obsługi Enter (logowanie), Escape i kliknięcia w tło
              (zamykanie okien); dodano też obsługę błędów połączenia z bazą
+   1.10.0 — rozszerzona edycja zajęć: oprócz daty, godziny i instruktora
+           można teraz zmienić także cenę (z przyciskiem ceny domyślnej),
+           typ zajęć (indywidualne/grupowe), liczbę uczestników, poziom
+           zaawansowania i uwagi; przy zmianie instruktora wypłata jest
+           automatycznie przeliczana wg jego własnej stawki, a w grafiku
+           dnia przy zajęciach grupowych widać liczbę uczestników
 ===================================================================== */
-const APP_VERSION = '1.9.0';
+const APP_VERSION = '1.10.0';
 document.querySelectorAll('.app-version').forEach(el => el.textContent = 'v' + APP_VERSION);
 
 const LEVELS = [
@@ -1219,7 +1225,7 @@ function renderDayScheduleGrid(dateIso){
         const canManage = currentUser.role==='operator' || currentUser.canManageAll || lesson.instructorId===currentUser.uid;
         html += `<td>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-            <span ${canManage?`onclick="openLessonEdit('${lesson.id}')" style="cursor:pointer;"`:''}><span class="dot" style="background:${cssColor(lv.key)}"></span> <b style="font-size:13px;">${esc(lesson.studentName)}</b>${lesson.lessonType==='group'?' 👥':''}</span>
+            <span ${canManage?`onclick="openLessonEdit('${lesson.id}')" style="cursor:pointer;"`:''}><span class="dot" style="background:${cssColor(lv.key)}"></span> <b style="font-size:13px;">${esc(lesson.studentName)}</b>${lesson.lessonType==='group'?` 👥${lesson.groupSize||2}`:''}</span>
             ${canManage ? `<button class="pay-toggle ${lesson.paymentStatus==='paid'?'paid':''}" onclick="toggleLessonPayment('${lesson.id}')" title="${lesson.paymentStatus==='paid'?'Zapłacono — dotknij, aby cofnąć':'Do zapłaty — dotknij, aby oznaczyć jako zapłacone'}">${lesson.paymentStatus==='paid'?'✓':'zł'}</button>` : paymentBadge(lesson.paymentStatus)}
           </div>
         </td>`;
@@ -1290,10 +1296,21 @@ window.toggleLessonPayment = async function(id){
 /* --- Lesson edit modal: change date/time/instructor/payment/status, or delete --- */
 let editingLessonId = null;
 let pendingEditPayment = null;
+/* Roboczy stan edycji — typ zajęć, liczba osób i cena muszą przetrwać
+   przerysowanie okna (zmiana typu przerysowuje formularz). */
+let editDraft = {lessonType:'individual', groupSize:2, price:0, priceTouched:false};
+
 window.openLessonEdit = function(id){
   editingLessonId = id;
   const l = lessons.find(x=>x.id===id);
   pendingEditPayment = l ? l.paymentStatus : 'unpaid';
+  // świeży stan — bez pozostałości po poprzednio edytowanych zajęciach
+  editDraft = {
+    lessonType: l?.lessonType || 'individual',
+    groupSize: l?.groupSize && l.groupSize>1 ? l.groupSize : 2,
+    price: l?.clientPrice ?? settings.basePrice,
+    priceTouched: true // istniejąca cena jest źródłem prawdy, nie nadpisujemy jej automatycznie
+  };
   renderLessonEditModal();
   document.getElementById('lesson-edit-modal-backdrop').classList.add('active');
 };
@@ -1320,6 +1337,34 @@ function renderLessonEditModal(){
       </select>
     </div>` : `<div class="field"><label>Instruktor</label><input value="${esc(l.instructorName)}" disabled></div>`}
 
+    <div class="opt-label">Typ zajęć</div>
+    <div class="choice-row">
+      <div class="choice-chip ${editDraft.lessonType==='individual'?'selected':''}" onclick="setEditLessonType('individual')">Indywidualne</div>
+      <div class="choice-chip ${editDraft.lessonType==='group'?'selected':''}" onclick="setEditLessonType('group')">Grupowe</div>
+    </div>
+    ${editDraft.lessonType==='group' ? `
+    <div class="field" style="max-width:180px;">
+      <label>Liczba uczestników</label>
+      <input type="number" min="2" max="12" id="le-groupsize" value="${editDraft.groupSize}" oninput="onEditGroupSizeInput(this)" ${canManage?'':'disabled'}>
+    </div>` : ''}
+
+    <div class="opt-label">Cena za te zajęcia</div>
+    <div class="field" style="margin-bottom:6px;max-width:200px;">
+      <div style="position:relative;">
+        <input type="number" min="0" step="5" id="le-price" value="${editDraft.price}" style="padding-right:52px;" oninput="onEditPriceInput(this)" ${canManage?'':'disabled'}>
+        <span style="position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--mist-dim);font-weight:700;font-size:13px;">zł</span>
+      </div>
+    </div>
+    ${canManage ? `<div style="margin-bottom:14px;">
+      <button type="button" class="icon-btn" onclick="resetEditPriceToDefault()">↺ Cena domyślna (${fmtMoney(settings.basePrice * (editDraft.lessonType==='group' ? editDraft.groupSize : 1))})</button>
+    </div>` : ''}
+
+    <div class="field"><label>Poziom zaawansowania</label>
+      <select id="le-level" ${canManage?'':'disabled'}>
+        ${LEVELS.map(lv=>`<option value="${lv.n}" ${l.level===lv.n?'selected':''}>${lv.n} — ${lv.label}</option>`).join('')}
+      </select>
+    </div>
+
     <div class="opt-label">Płatność</div>
     <div class="choice-row">
       <div class="choice-chip ${l.paymentStatus==='unpaid'?'selected pay-warn':''}" onclick="setEditPayment('unpaid', this)">Do zapłaty</div>
@@ -1332,18 +1377,71 @@ function renderLessonEditModal(){
       </select>
     </div>
 
+    <div class="field"><label>Uwagi</label>
+      <textarea id="le-notes" rows="2" placeholder="Sprzęt, kontuzje, uwagi dla instruktora…" ${canManage?'':'disabled'}>${esc(l.notes||'')}</textarea>
+    </div>
+
     ${canManage ? `
     <div style="display:flex;gap:10px;margin-top:6px;">
       <button class="btn btn-outline" style="flex:1" onclick="deleteLessonFromEdit()">Usuń zajęcia</button>
       <button class="btn btn-primary" style="flex:1" onclick="saveLessonEdit()">Zapisz zmiany</button>
     </div>` : `<div style="color:var(--mist-dim);font-size:13px;margin-top:6px;">Nie masz uprawnień do edycji tych zajęć.</div>`}
   `;
+  restoreEditFormState();
 }
 window.setEditPayment = function(status, el){
   pendingEditPayment = status;
   el.parentElement.querySelectorAll('.choice-chip').forEach(c=>c.classList.remove('selected','pay-ok','pay-warn'));
   el.classList.add('selected', status==='paid'?'pay-ok':'pay-warn');
 };
+window.setEditLessonType = function(type){
+  // zachowaj to, co użytkownik zdążył wpisać, zanim przerysujemy formularz
+  captureEditFormState();
+  editDraft.lessonType = type;
+  if(!editDraft.priceTouched){
+    editDraft.price = settings.basePrice * (type==='group' ? editDraft.groupSize : 1);
+  }
+  renderLessonEditModal();
+};
+window.onEditGroupSizeInput = function(el){
+  editDraft.groupSize = Math.max(2, Number(el.value)||2);
+  if(!editDraft.priceTouched){
+    editDraft.price = settings.basePrice * editDraft.groupSize;
+    const p = document.getElementById('le-price');
+    if(p) p.value = editDraft.price;
+  }
+};
+window.onEditPriceInput = function(el){
+  editDraft.price = Number(el.value)||0;
+  editDraft.priceTouched = true;
+};
+window.resetEditPriceToDefault = function(){
+  editDraft.priceTouched = false;
+  editDraft.price = settings.basePrice * (editDraft.lessonType==='group' ? editDraft.groupSize : 1);
+  const p = document.getElementById('le-price');
+  if(p) p.value = editDraft.price;
+  showToast('Przywrócono cenę domyślną');
+};
+/* Przed przerysowaniem okna zapamiętujemy to, co jest aktualnie w polach,
+   żeby zmiana typu zajęć nie kasowała wpisanych danych. */
+function captureEditFormState(){
+  const p = document.getElementById('le-price');
+  const g = document.getElementById('le-groupsize');
+  if(p) editDraft.price = Number(p.value)||0;
+  if(g) editDraft.groupSize = Math.max(2, Number(g.value)||2);
+  // zapamiętaj też pozostałe pola, bo przerysowanie odtwarza je z rekordu
+  ['le-date','le-time','le-status','le-level','le-notes','le-instructor'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) editDraft[id] = el.value;
+  });
+}
+/* Po przerysowaniu przywracamy wartości, których użytkownik jeszcze nie zapisał. */
+function restoreEditFormState(){
+  ['le-date','le-time','le-status','le-level','le-notes','le-instructor'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el && editDraft[id] !== undefined) el.value = editDraft[id];
+  });
+}
 window.saveLessonEdit = async function(){
   const l = lessons.find(x=>x.id===editingLessonId);
   if(!l) return;
@@ -1357,16 +1455,30 @@ window.saveLessonEdit = async function(){
     instructorName = instrSel.selectedOptions[0].dataset.name;
   }
   if(!date || !time){ showToast('Podaj datę i godzinę'); return; }
+  captureEditFormState();
+  const level = Number(document.getElementById('le-level').value) || l.level;
+  const notes = (document.getElementById('le-notes')?.value || '').trim();
+  const lessonType = editDraft.lessonType;
+  const groupSize = lessonType==='group' ? Math.max(2, editDraft.groupSize) : 1;
+  const clientPrice = Math.max(0, editDraft.price);
+
   const conflict = lessons.find(x=>x.id!==editingLessonId && x.date===date && x.time===time && x.instructorId===instructorId && x.status!=='cancelled');
   if(conflict){
     const ok = confirm(`Uwaga: ${instructorName} ma już zajęcia o ${time} tego dnia (uczeń: ${conflict.studentName}). Zapisać mimo to?`);
     if(!ok) return;
   }
   try{
-    await updateDoc(doc(db,'lessons',editingLessonId), {
+    const payload = {
       date, time, instructorId, instructorName, status,
-      paymentStatus: pendingEditPayment
-    });
+      paymentStatus: pendingEditPayment,
+      lessonType, groupSize, clientPrice, level, notes
+    };
+    // przy zmianie instruktora przeliczamy jego wypłatę wg jego własnej stawki
+    if(instructorId !== l.instructorId){
+      const newInstr = instructors.find(i=>i.uid===instructorId);
+      payload.instructorPay = newInstr ? (newInstr.pricePerLesson ?? settings.instructorRateDefault) : settings.instructorRateDefault;
+    }
+    await updateDoc(doc(db,'lessons',editingLessonId), payload);
     showToast('Zajęcia zaktualizowane');
     closeLessonEditModal();
     calSelectedDate = date;
