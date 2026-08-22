@@ -1,6 +1,6 @@
 // Prosty service worker — cache app-shellu, żeby apka instalowała się jak natywna
 // i otwierała nawet przy słabym zasięgu. Dane (Firebase) zawsze idą przez sieć.
-const CACHE_NAME = "szkolka-shell-v1";
+const CACHE_NAME = "szkolka-shell-v2";
 const SHELL_FILES = [
   "./index.html",
   "./manifest.json",

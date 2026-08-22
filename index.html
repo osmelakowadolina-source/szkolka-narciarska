@@ -300,6 +300,66 @@ input,select,textarea{font-family:inherit;}
   .drawer-close-btn{display:flex;}
 }
 
+/* Telefon w poziomie ma dużą szerokość (ok. 850 px), więc wypadałby z reguł
+   mobilnych i pokazywał stały panel boczny zabierający miejsce. Przy niskiej
+   wysokości ekranu używamy więc tego samego wysuwanego menu co w pionie. */
+@media (orientation: landscape) and (max-height: 520px){
+  #app-shell{flex-direction:column;}
+  #mobile-topbar{display:flex;}
+  .sidebar{
+    position:fixed; left:0; top:0; bottom:0; width:260px; max-width:70vw; height:100vh;
+    transform:translateX(-105%); transition:transform .25s ease;
+    flex-direction:column; overflow-y:auto;
+    border-right:1px solid var(--navy-3); border-top:none;
+    box-shadow:12px 0 40px rgba(0,0,0,0.45);
+    z-index:70;
+  }
+  .sidebar.drawer-open{transform:translateX(0);}
+  .drawer-close-btn{display:flex;}
+}
+
+/* ===== ORIENTACJA POZIOMA =====
+   Telefon obrócony w poziom ma ok. 400 px wysokości, więc pionowe odstępy,
+   nagłówki i panel boczny muszą się skompaktować, żeby treść się mieściła.
+   (Sama możliwość obracania zależy od "orientation": "any" w manifest.json.) */
+@media (orientation: landscape) and (max-height: 520px){
+  .main{padding:12px 16px 24px;}
+  .page-head{margin-bottom:12px;}
+  .page-head h1{font-size:24px;}
+  .card{padding:14px;margin-bottom:12px;}
+  .card h3{font-size:17px;margin-bottom:10px;}
+  .stat{padding:10px 12px;}
+  .stat .num{font-size:24px;}
+  .stats-grid{gap:10px;margin-bottom:12px;}
+
+  /* panel boczny musi się przewijać — nie zmieści się w całości */
+  .sidebar{padding:12px 10px;overflow-y:auto;}
+  .sidebar .brand{font-size:18px;padding-bottom:10px;}
+  .nav-item{padding:8px 10px;font-size:13.5px;}
+  #mobile-topbar{padding:8px 14px;}
+  .menu-btn{width:34px;height:34px;font-size:17px;}
+  #mobile-page-title{font-size:16px;}
+
+  /* kreator zapisu: skrót wysokości nagłówków, żeby zostało miejsce na treść */
+  .lift-track{padding:10px 20px 4px;}
+  .lift-cable, .lift-cable-fill{top:24px;}
+  .lift-chair{top:12px;font-size:16px;}
+  .lift-pole{width:20px;height:20px;font-size:10px;}
+  .wizard-top{padding:8px 16px;}
+  .wizard-panel h2{font-size:22px;}
+  .wizard-hint{margin-bottom:12px;font-size:12.5px;}
+  .wizard-body{padding:12px 16px 20px;}
+  .big-input{padding:12px;font-size:18px;}
+  .level-card{padding:9px 12px;}
+  .level-badge{width:34px;height:34px;font-size:16px;}
+  .modal{padding:16px;max-height:94vh;}
+}
+
+/* W poziomie na telefonie robi się miejsce na dwie kolumny — wykorzystajmy je */
+@media (orientation: landscape) and (max-height: 520px) and (min-width: 700px){
+  .grid-2{grid-template-columns:minmax(0,1fr) minmax(0,1fr);}
+}
+
 .stat{background:var(--navy);border:1px solid var(--navy-3);border-left:3px solid var(--ice);border-radius:11px;padding:16px;position:relative;overflow:hidden;}
 .stat .num{font-family:var(--font-display);font-size:32px;font-weight:800;}
 .stat .lbl{font-size:11.5px;color:var(--mist-dim);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-top:2px;}
@@ -715,8 +775,14 @@ if ('serviceWorker' in navigator) {
            zaawansowania i uwagi; przy zmianie instruktora wypłata jest
            automatycznie przeliczana wg jego własnej stawki, a w grafiku
            dnia przy zajęciach grupowych widać liczbę uczestników
+   1.11.0 — odblokowana orientacja pozioma: aplikacja była zablokowana na
+           pionie w manifest.json, więc po zainstalowaniu w ogóle się nie
+           obracała. Dodatkowo układ dostosowany do poziomu — przy niskim
+           ekranie kompaktują się nagłówki, karty i kreator zapisu, a menu
+           działa jako wysuwany panel (stały pasek boczny zabierałby
+           zbyt dużo szerokości)
 ===================================================================== */
-const APP_VERSION = '1.10.0';
+const APP_VERSION = '1.11.0';
 document.querySelectorAll('.app-version').forEach(el => el.textContent = 'v' + APP_VERSION);
 
 const LEVELS = [
