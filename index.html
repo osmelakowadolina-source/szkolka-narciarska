@@ -390,6 +390,16 @@ tbody tr:hover{background:rgba(255,255,255,0.035);}
 .icon-btn.danger{color:var(--danger);border-color:rgba(230,57,70,0.4);}
 .icon-btn:hover{background:var(--navy-3);}
 .status-select{background:var(--navy);border:1.5px solid var(--navy-4);color:var(--snow);border-radius:8px;padding:7px 10px;font-size:13.5px;font-weight:600;min-width:130px;}
+/* pełnoekranowy grafik dnia — pasek nawigacji między dniami */
+.dayview-nav{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.dayview-arrow{font-size:20px;line-height:1;padding:4px 14px;font-weight:700;}
+.dayview-date{display:flex;align-items:center;gap:10px;flex:1;min-width:0;}
+.dayview-date b{font-family:var(--font-display);font-size:22px;text-transform:uppercase;white-space:nowrap;}
+.dayview-date input{background:var(--navy);border:1px solid var(--navy-4);color:var(--snow);border-radius:8px;padding:6px 10px;font-size:13px;}
+@media(max-width:640px){
+  .dayview-date b{font-size:18px;}
+  .dayview-date input{font-size:12px;padding:5px 8px;}
+}
 .pay-toggle{background:var(--navy);border:1.5px solid var(--navy-4);color:var(--mist-dim);border-radius:6px;padding:3px 8px;font-size:11px;font-weight:800;flex-shrink:0;transition:all .12s;}
 .pay-toggle.paid{background:rgba(47,168,79,0.18);border-color:var(--ok);color:var(--ok);}
 .pay-toggle:not(.paid):hover{border-color:var(--warn);color:var(--warn);}
@@ -461,7 +471,17 @@ tbody tr:hover{background:rgba(255,255,255,0.035);}
 .instr-chip.selected{background:var(--ice);border-color:var(--ice);color:#fff;}
 
 .slot-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;min-width:0;}
-.slot{padding:14px 6px;text-align:center;border-radius:11px;background:var(--navy-2);border:1.5px solid var(--navy-3);font-family:var(--font-display);font-size:18px;font-weight:700;}
+.slot{padding:14px 6px;text-align:center;border-radius:11px;background:var(--navy-2);border:1.5px solid var(--navy-3);font-family:var(--font-display);font-size:18px;font-weight:700;line-height:1.1;}
+/* przy zapisie na kilka dni: ile z wybranych dni jest wolnych o tej godzinie */
+.slot-count{display:block;font-family:var(--font-body);font-size:10.5px;font-weight:700;color:var(--mist-dim);margin-top:2px;}
+.slot.partial{border-color:var(--warn);}
+.slot.partial .slot-count{color:var(--warn);}
+.slot.selected .slot-count{color:rgba(255,255,255,0.85);}
+/* lista wybranych dni pod kalendarzem w kreatorze */
+.selected-dates{margin-top:16px;padding-top:14px;border-top:1px dashed var(--navy-3);}
+.date-chips{display:flex;flex-wrap:wrap;gap:8px;}
+.date-chip{background:var(--navy-3);border:1px solid var(--navy-4);color:var(--snow);border-radius:20px;padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer;transition:all .12s;}
+.date-chip:hover{border-color:var(--danger);color:var(--danger);}
 .slot.taken{opacity:0.28;pointer-events:none;text-decoration:line-through;}
 .slot.selected{background:var(--ice);border-color:var(--ice);color:#fff;}
 
@@ -572,7 +592,7 @@ tbody tr:hover{background:rgba(255,255,255,0.035);}
 <!-- ================= ENROLLMENT WIZARD ================= -->
 <div id="wizard-overlay">
   <div class="wizard-top">
-    <div class="page-sub">Nowy zapis</div>
+    <div class="page-sub" id="wizard-title">Nowy zapis</div>
     <button class="wizard-close" onclick="closeWizard()">✕</button>
   </div>
   <div class="lift-track">
@@ -781,8 +801,29 @@ if ('serviceWorker' in navigator) {
            ekranie kompaktują się nagłówki, karty i kreator zapisu, a menu
            działa jako wysuwany panel (stały pasek boczny zabierałby
            zbyt dużo szerokości)
+   1.12.0 — nowa zakładka "Grafik dnia": pełnoekranowa rozpiska dnia bez
+           kalendarza zabierającego pół ekranu, z szybką nawigacją
+           (strzałki dzień w tył/przód, przycisk "Dziś", skok do dowolnej
+           daty) i podsumowaniem dnia — liczba zajęć, godziny, przychód
+           i ile płatności zostało do rozliczenia. Na zakładce Zapisy
+           doszedł przycisk "⛶ Pełny ekran" przechodzący do tego widoku
+   1.13.0 — zapis na kilka dni za jednym razem: w kreatorze można teraz
+           zaznaczyć wiele dat (dotknięcie dnia dodaje/usuwa go z listy),
+           a przy wyborze godziny widać, w ilu z wybranych dni dany termin
+           jest wolny (np. "3/4") — z podpowiedzią, co blokuje pozostałe.
+           System uwzględnia różne przerwy obiadowe w różne dni tygodnia,
+           istniejące rezerwacje, nieobecności i limity godzin instruktora,
+           a przy zapisie tworzy osobne zajęcia dla każdego dnia (można je
+           potem edytować niezależnie). Jeśli część dni koliduje, aplikacja
+           pyta i zapisuje tylko te wolne
+   1.14.0 — dopisywanie kolejnych zajęć znanemu kursantowi: w oknie edycji
+           zajęć oraz w historii ucznia doszedł przycisk "Dopisz kolejne
+           zajęcia". Otwiera kreator z przepisanymi danymi (imię, telefon,
+           poziom, typ zajęć, cena, instruktor) i skróconą ścieżką —
+           wystarczy wybrać dni i godzinę, bez ponownego wpisywania
+           wszystkiego. Można od razu dopisać kilka dni naraz
 ===================================================================== */
-const APP_VERSION = '1.11.0';
+const APP_VERSION = '1.14.0';
 document.querySelectorAll('.app-version').forEach(el => el.textContent = 'v' + APP_VERSION);
 
 const LEVELS = [
@@ -1184,6 +1225,7 @@ window.deleteAbsence = async function(id){
 /* ============ NAV ============ */
 function renderNav(){
   const items = currentUser.role==='operator' ? [
+    ['grafik','📋','Grafik dnia'],
     ['zapisy','📅','Zapisy'],
     ['uczniowie','🧑‍🎓','Uczniowie'],
     ['instruktorzy','🧑‍🏫','Instruktorzy'],
@@ -1191,6 +1233,7 @@ function renderNav(){
     ['przypomnienia','✉️','Przypomnienia'],
     ['ustawienia','⚙️','Ustawienia'],
   ] : [
+    ['grafik','📋','Grafik dnia'],
     ['zapisy','📅','Kalendarz'],
     ['uczniowie','🧑‍🎓','Uczniowie'],
     ['moje','🎿','Moje godziny'],
@@ -1218,6 +1261,7 @@ function renderPage(){
   if(!currentUser) return;
   renderNav();
   const main = document.getElementById('main-content');
+  if(currentPage==='grafik') return renderDayViewPage(main);
   if(currentPage==='zapisy') return renderCalendarPage(main);
   if(currentPage==='uczniowie') return renderStudentsPage(main);
   if(currentPage==='instruktorzy') return renderInstructorsPage(main);
@@ -1229,6 +1273,75 @@ function renderPage(){
 
 /* ============ CALENDAR / ZAPISY PAGE ============ */
 let calMonth = new Date().getMonth(), calYear = new Date().getFullYear(), calSelectedDate = todayISO();
+
+/* ============ FULL-SCREEN DAY VIEW ============
+   Cały ekran na rozpiskę dnia — bez kalendarza zabierającego połowę miejsca.
+   Nawigacja: strzałki dzień w tył/przód, "Dziś" i skok do dowolnej daty. */
+function shiftDate(iso, days){
+  const d = new Date(iso+'T12:00:00'); // południe — odporne na zmianę czasu
+  d.setDate(d.getDate()+days);
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+function renderDayViewPage(main){
+  const dayLessons = lessons.filter(l=>l.date===calSelectedDate && l.status!=='cancelled');
+  const dayAbsences = absences.filter(a=>a.date===calSelectedDate);
+  const dow = new Date(calSelectedDate+'T12:00:00').getDay();
+  const isToday = calSelectedDate===todayISO();
+  const revenue = dayLessons.reduce((s,l)=>s+lessonPrice(l),0);
+  const unpaidCount = dayLessons.filter(l=>l.paymentStatus!=='paid').length;
+
+  main.innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-sub">${esc(WEEKDAY_LABELS[dow])}${isToday?' · dziś':''}</div>
+        <h1>Grafik dnia</h1>
+      </div>
+      <button class="btn btn-gold" onclick="openWizard()">＋ Nowy zapis</button>
+    </div>
+
+    <div class="card">
+      <div class="dayview-nav">
+        <button class="icon-btn dayview-arrow" onclick="dayViewShift(-1)" title="Poprzedni dzień">‹</button>
+        <div class="dayview-date">
+          <b>${fmtDatePL(calSelectedDate)}</b>
+          <input type="date" value="${calSelectedDate}" onchange="dayViewJump(this.value)">
+        </div>
+        <button class="icon-btn dayview-arrow" onclick="dayViewShift(1)" title="Następny dzień">›</button>
+        ${!isToday ? `<button class="icon-btn" onclick="dayViewJump('${todayISO()}')">Dziś</button>` : ''}
+      </div>
+
+      <div class="stats-grid" style="margin:14px 0 4px;">
+        <div class="stat c-lv2"><div class="num">${dayLessons.length}</div><div class="lbl">Zajęć tego dnia</div></div>
+        <div class="stat c-lv1"><div class="num">${sumHours(dayLessons).toFixed(1)}h</div><div class="lbl">Godzin łącznie</div></div>
+        <div class="stat c-lv5"><div class="num">${fmtMoney(revenue)}</div><div class="lbl">Przychód dnia</div></div>
+        <div class="stat ${unpaidCount>0?'c-danger':''}"><div class="num">${unpaidCount}</div><div class="lbl">Do zapłaty</div></div>
+      </div>
+    </div>
+
+    ${dayAbsences.length>0 ? `<div class="card" style="background:rgba(230,57,70,0.08);border-color:rgba(230,57,70,0.35);">
+      ${dayAbsences.map(a=>`🚫 <b>${esc(a.instructorName)}</b> — nieobecny(a) ${a.allDay?'cały dzień':`${a.startTime}–${a.endTime}`}${a.reason?` <span style="color:var(--mist-dim);">(${esc(a.reason)})</span>`:''}`).join('<br>')}
+    </div>` : ''}
+
+    <div class="card">
+      <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--mist-dim);margin-bottom:12px;">
+        <span><span class="pay-toggle paid" style="pointer-events:none;">✓</span> zapłacone</span>
+        <span><span class="pay-toggle" style="pointer-events:none;">zł</span> do zapłaty — dotknij, aby zmienić</span>
+        <span>🚫 nieobecność</span> <span>☕ przerwa</span>
+        <span>Dotknij imienia ucznia, aby edytować zajęcia</span>
+      </div>
+      ${renderDayScheduleGrid(calSelectedDate)}
+    </div>
+  `;
+}
+window.dayViewShift = function(days){
+  calSelectedDate = shiftDate(calSelectedDate, days);
+  renderPage();
+};
+window.dayViewJump = function(iso){
+  if(!iso) return;
+  calSelectedDate = iso;
+  renderPage();
+};
 
 function renderCalendarPage(main){
   const dayAbsences = absences.filter(a=>a.date===calSelectedDate);
@@ -1243,7 +1356,10 @@ function renderCalendarPage(main){
         <div id="mini-cal"></div>
       </div>
       <div class="card">
-        <h3>${fmtDatePL(calSelectedDate)}</h3>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;">
+          <h3 style="margin:0;">${fmtDatePL(calSelectedDate)}</h3>
+          <button class="icon-btn" onclick="goTo('grafik')" title="Pokaż na całym ekranie">⛶ Pełny ekran</button>
+        </div>
         ${dayAbsences.length>0 ? `<div style="background:rgba(230,57,70,0.1);border:1px solid rgba(230,57,70,0.35);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13.5px;">
           ${dayAbsences.map(a=>`🚫 <b>${esc(a.instructorName)}</b> — nieobecny(a) ${a.allDay?'cały dzień':`${a.startTime}–${a.endTime}`}${a.reason?` <span style="color:var(--mist-dim);">(${esc(a.reason)})</span>`:''}`).join('<br>')}
         </div>` : ''}
@@ -1448,6 +1564,7 @@ function renderLessonEditModal(){
     </div>
 
     ${canManage ? `
+    <button class="btn btn-gold btn-block" style="margin-bottom:10px;" onclick="openWizardForStudent('${escAttr(l.studentName)}','${escAttr(l.studentPhone)}')">＋ Dopisz kolejne zajęcia dla ${esc(l.studentName)}</button>
     <div style="display:flex;gap:10px;margin-top:6px;">
       <button class="btn btn-outline" style="flex:1" onclick="deleteLessonFromEdit()">Usuń zajęcia</button>
       <button class="btn btn-primary" style="flex:1" onclick="saveLessonEdit()">Zapisz zmiany</button>
@@ -1654,7 +1771,9 @@ window.openStudentDetail = function(name, phone){
       <label>Opis ucznia ${existingNote.updatedByName ? `<span style="text-transform:none;letter-spacing:0;color:var(--mist-dim);">— ostatnio: ${esc(existingNote.updatedByName)}</span>` : ''}</label>
       <textarea id="student-notes-input" rows="3" placeholder="Charakter, tempo nauki, obawy, ulubiony sprzęt, na co uważać…">${esc(existingNote.notes||'')}</textarea>
     </div>
-    <button class="btn btn-primary" style="margin-bottom:22px;" onclick="saveStudentNotes('${escAttr(name)}','${escAttr(phone)}')">Zapisz opis</button>
+    <button class="btn btn-primary" style="margin-bottom:14px;" onclick="saveStudentNotes('${escAttr(name)}','${escAttr(phone)}')">Zapisz opis</button>
+
+    ${studentLessons.length>0 ? `<button class="btn btn-gold btn-block" style="margin-bottom:22px;" onclick="openWizardForStudent('${escAttr(name)}','${escAttr(phone)}')">＋ Dopisz kolejne zajęcia</button>` : ''}
 
     <h3 style="font-size:17px;margin-bottom:10px;">Historia nauki (${studentLessons.length})</h3>
     ${studentLessons.length===0 ? `<div class="empty-state" style="padding:20px;"><b>Brak zajęć</b></div>` :
@@ -2055,8 +2174,14 @@ window.highlightDurationPreset = function(){
    Każdy krok renderuje własny przycisk "Dalej" tuż pod polem — nie jest
    on przyklejony na sztywno do dołu ekranu.
 ===================================================================== */
-const STEPS = ['date','time','name','phone','level','confirm'];
-const STEP_LABELS = ['Data','Godzina','Imię','Telefon','Poziom','Potwierdź'];
+const STEPS_FULL = ['date','time','name','phone','level','confirm'];
+const STEP_LABELS_FULL = ['Dni','Godzina','Imię','Telefon','Poziom','Potwierdź'];
+/* Gdy dopisujemy zajęcia znanemu już kursantowi, jego dane są przepisane
+   z poprzednich zajęć — pomijamy więc kroki z imieniem, telefonem i poziomem. */
+const STEPS_REPEAT = ['date','time','confirm'];
+const STEP_LABELS_REPEAT = ['Dni','Godzina','Potwierdź'];
+function wizardSteps(){ return wData.repeatFor ? STEPS_REPEAT : STEPS_FULL; }
+function wizardStepLabels(){ return wData.repeatFor ? STEP_LABELS_REPEAT : STEP_LABELS_FULL; }
 let wStep = 0;
 let wData = {};
 let wCalMonth, wCalYear;
@@ -2064,7 +2189,7 @@ let wCalMonth, wCalYear;
 window.openWizard = function(){
   wStep = 0;
   wData = {
-    date:null,
+    dates:[],            // można zapisać ucznia na kilka dni za jednym razem
     instructorId: currentUser.role==='instructor' ? currentUser.uid : null,
     instructorName: currentUser.role==='instructor' ? currentUser.name : null,
     time:null, name:'', countryCode:'+48', phone:'', level:null,
@@ -2072,20 +2197,69 @@ window.openWizard = function(){
     price: settings.basePrice, priceTouched:false
   };
   const d = new Date(); wCalMonth = d.getMonth(); wCalYear = d.getFullYear();
+  document.getElementById('wizard-title').textContent = 'Nowy zapis';
   document.getElementById('wizard-overlay').classList.add('active');
   renderLiftTrack();
   renderWizardStep();
 };
 window.closeWizard = function(){ document.getElementById('wizard-overlay').classList.remove('active'); };
 
+/* Dopisanie kolejnych zajęć znanemu kursantowi — dane osobowe, poziom, typ
+   zajęć i cenę przepisujemy z ostatnich zajęć, więc wystarczy wybrać dni
+   i godzinę. Wywoływane z okna edycji zajęć i z historii ucznia. */
+window.openWizardForStudent = function(name, phone){
+  const key = studentKey(name, phone);
+  const past = lessons
+    .filter(l=>studentKey(l.studentName, l.studentPhone)===key)
+    .sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
+  const last = past[0];
+  if(!last){ showToast('Brak wcześniejszych zajęć tego kursanta'); return; }
+
+  // rozbicie zapisanego numeru na kierunkowy + resztę
+  const full = String(last.studentPhone||'');
+  const cc = COUNTRY_CODES.find(c=>c.code!=='+other' && full.startsWith(c.code));
+  const countryCode = cc ? cc.code : '+48';
+  const digits = cc ? full.slice(cc.code.length) : full.replace(/\D/g,'');
+
+  // domyślnie ten sam instruktor; instruktor dopisujący sobie — zawsze on sam
+  const instructorId = currentUser.role==='instructor' ? currentUser.uid : last.instructorId;
+  const instructorName = currentUser.role==='instructor' ? currentUser.name : last.instructorName;
+
+  wStep = 0;
+  wData = {
+    repeatFor: {name:last.studentName, phone:last.studentPhone},
+    dates:[],
+    instructorId, instructorName,
+    time:null,
+    name: last.studentName,
+    countryCode,
+    phone: digits,
+    level: last.level,
+    lessonType: last.lessonType || 'individual',
+    groupSize: last.groupSize && last.groupSize>1 ? last.groupSize : 2,
+    paymentStatus: 'unpaid',
+    notes: '',
+    price: last.clientPrice ?? settings.basePrice,
+    priceTouched: true
+  };
+  const d = new Date(); wCalMonth = d.getMonth(); wCalYear = d.getFullYear();
+  document.getElementById('wizard-title').textContent = `Kolejne zajęcia — ${last.studentName}`;
+  // zamknij okna, z których wywołano akcję
+  document.getElementById('lesson-edit-modal-backdrop').classList.remove('active');
+  document.getElementById('student-modal-backdrop').classList.remove('active');
+  document.getElementById('wizard-overlay').classList.add('active');
+  renderLiftTrack();
+  renderWizardStep();
+};
+
 function renderLiftTrack(){
   const el = document.getElementById('lift-stations');
-  el.innerHTML = STEP_LABELS.map((label,i)=>`
+  el.innerHTML = wizardStepLabels().map((label,i)=>`
     <div class="lift-station ${i<wStep?'done':''} ${i===wStep?'current':''}">
       <div class="lift-pole">${i<wStep?'✓':i+1}</div>
       <div class="lift-label">${label}</div>
     </div>`).join('');
-  const pct = wStep/(STEPS.length-1)*100;
+  const pct = wStep/(wizardSteps().length-1)*100;
   document.getElementById('lift-fill').style.width = pct+'%';
   document.getElementById('lift-chair').style.left = `calc(${pct}% + 34px - 10px)`;
 }
@@ -2104,65 +2278,98 @@ window.wizardStepNext = function(){ wStep++; renderLiftTrack(); renderWizardStep
 
 function renderWizardStep(){
   const body = document.getElementById('wizard-body');
-  const step = STEPS[wStep];
+  const step = wizardSteps()[wStep];
 
   if(step==='date'){
+    const sorted = [...wData.dates].sort();
     body.innerHTML = `<div class="wizard-panel">
-      <h2>Wybierz datę</h2>
-      <div class="wizard-hint">Na jaki dzień zapisujemy kursanta?</div>
+      <h2>Wybierz dni</h2>
+      <div class="wizard-hint">Dotknij jednego lub kilku dni — zapiszesz kursanta na wszystkie naraz</div>
       <div class="big-cal" id="w-big-cal"></div>
-      ${actionsHtml(!!wData.date, false)}
+      ${sorted.length>0 ? `<div class="selected-dates">
+        <div class="opt-label" style="margin-bottom:8px;">Wybrane dni (${sorted.length})</div>
+        <div class="date-chips">
+          ${sorted.map(d=>`<span class="date-chip" onclick="pickDate('${d}')" title="Dotknij, aby usunąć">${fmtDatePL(d)} ✕</span>`).join('')}
+        </div>
+        ${sorted.length>1 ? `<button type="button" class="icon-btn" style="margin-top:10px;" onclick="clearWizardDates()">Wyczyść wszystkie</button>` : ''}
+      </div>` : ''}
+      ${actionsHtml(wData.dates.length>0, false)}
     </div>`;
     renderWizardCal();
     return;
   }
 
   if(step==='time'){
-    const dayLessons = lessons.filter(l=>l.date===wData.date && l.status!=='cancelled');
+    const dates = [...wData.dates].sort();
     const needInstructorPick = currentUser.role==='operator';
-    const absentAllDay = wData.instructorId ? isAllDayAbsent(wData.instructorId, wData.date) : false;
     let instrHtml = '';
     if(needInstructorPick){
       instrHtml = `<div class="instr-pick">${instructors.map(i=>{
-        const absent = isAllDayAbsent(i.uid, wData.date);
-        return `<div class="instr-chip ${wData.instructorId===i.uid?'selected':''}" onclick="pickInstructor('${i.uid}','${escAttr(i.name)}')">${absent?'🚫 ':''}${esc(i.name)}</div>`;
+        const absentDays = dates.filter(d=>isAllDayAbsent(i.uid, d)).length;
+        return `<div class="instr-chip ${wData.instructorId===i.uid?'selected':''}" onclick="pickInstructor('${i.uid}','${escAttr(i.name)}')">${absentDays>0?'🚫 ':''}${esc(i.name)}</div>`;
       }).join('') || '<div style="color:var(--mist-dim);font-size:13px;">Brak instruktorów — dodaj ich w panelu Instruktorzy.</div>'}</div>`;
     }
 
-    // shared sequential slot generator: lessons resume right after the
-    // lunch break (which may be a per-weekday override), not on a fixed grid
-    const {slots: rawSlots, lunch} = generateDaySlots(wData.date);
-    const slots = rawSlots.map(t=>({time:fromMinutes(t), minutes:t}));
-
-    // per-instructor daily hour limit + osobista przerwa
     const selectedInstructor = instructors.find(i=>i.uid===wData.instructorId) || (currentUser.role==='instructor' ? currentUser : null);
-    const instructorBookedCount = wData.instructorId ? dayLessons.filter(l=>l.instructorId===wData.instructorId).length : 0;
-    const maxHoursPerDay = selectedInstructor?.maxHoursPerDay || null;
-    const maxSlotsPerDay = maxHoursPerDay ? Math.floor(maxHoursPerDay*60/settings.lessonDuration) : Infinity;
-    const limitReached = wData.instructorId && instructorBookedCount >= maxSlotsPerDay;
-    const pb = personalBreakWindow(selectedInstructor, wData.date);
-    const breakStartMin = pb ? pb.start : null;
-    const breakEndMin = pb ? pb.end : null;
+
+    /* Przy zapisie na kilka dni pokazujemy tylko godziny, które da się
+       zarezerwować — a przy każdej z nich ile z wybranych dni jest wolnych.
+       Godziny mogą się różnić między dniami (inna przerwa obiadowa w różne
+       dni tygodnia), więc bierzemy sumę wszystkich możliwych godzin i
+       sprawdzamy każdy dzień osobno. */
+    const slotMap = new Map(); // "HH:MM" -> {minutes, freeDates:[], blockedDates:[{date,reason}]}
+    dates.forEach(date=>{
+      const {slots: raw} = generateDaySlots(date);
+      const dayLessons = lessons.filter(l=>l.date===date && l.status!=='cancelled');
+      const bookedCount = wData.instructorId ? dayLessons.filter(l=>l.instructorId===wData.instructorId).length : 0;
+      const maxHours = selectedInstructor?.maxHoursPerDay || null;
+      const maxSlots = maxHours ? Math.floor(maxHours*60/settings.lessonDuration) : Infinity;
+      const limitReached = wData.instructorId && bookedCount >= maxSlots;
+      const pb = personalBreakWindow(selectedInstructor, date);
+
+      raw.forEach(t=>{
+        const time = fromMinutes(t);
+        if(!slotMap.has(time)) slotMap.set(time, {minutes:t, freeDates:[], blockedDates:[]});
+        const entry = slotMap.get(time);
+        const taken = dayLessons.some(l=>l.time===time && l.instructorId===wData.instructorId);
+        const inBreak = pb && t < pb.end && t + settings.lessonDuration > pb.start;
+        const inAbsence = wData.instructorId && absenceBlocksMinutes(wData.instructorId, date, t);
+        const overLimit = limitReached && !taken;
+        const reason = taken?'zajęte':inAbsence?'nieobecność':inBreak?'przerwa':overLimit?'limit godzin':null;
+        if(reason) entry.blockedDates.push({date, reason});
+        else entry.freeDates.push(date);
+      });
+    });
+    const slots = [...slotMap.entries()]
+      .map(([time,v])=>({time, ...v}))
+      .sort((a,b)=>a.minutes-b.minutes);
+
+    const multi = dates.length > 1;
+    const headerDates = multi
+      ? `${dates.length} dni: ${dates.map(fmtDatePL).join(', ')}`
+      : fmtDatePL(dates[0]);
 
     const hintParts = [];
-    if(lunch) hintParts.push(`Przerwa obiadowa: ${fromMinutes(lunch.start)}–${fromMinutes(lunch.end)} (zajęcia ruszają dalej zaraz po niej)`);
-    if(maxHoursPerDay) hintParts.push(`Limit dzienny instruktora: ${instructorBookedCount}/${maxSlotsPerDay} zajęć (${maxHoursPerDay} h)`);
-    if(breakStartMin!==null) hintParts.push(`Przerwa instruktora: ${fromMinutes(breakStartMin)}–${fromMinutes(breakEndMin)}`);
-    if(absentAllDay) hintParts.push(`🚫 Instruktor zgłosił nieobecność cały dzień`);
+    const lunchFirst = getLunchBreakForDate(dates[0]);
+    if(lunchFirst && !multi) hintParts.push(`Przerwa obiadowa: ${fromMinutes(lunchFirst.start)}–${fromMinutes(lunchFirst.end)}`);
+    if(selectedInstructor?.maxHoursPerDay) hintParts.push(`Limit dzienny instruktora: ${selectedInstructor.maxHoursPerDay} h`);
+    if(multi) hintParts.push('Liczba pod godziną = w ilu z wybranych dni termin jest wolny');
 
     body.innerHTML = `<div class="wizard-panel">
       <h2>Godzina zajęć</h2>
-      <div class="wizard-hint">${fmtDatePL(wData.date)}${needInstructorPick?' — wybierz instruktora i godzinę':''}</div>
+      <div class="wizard-hint">${esc(headerDates)}${needInstructorPick?' — wybierz instruktora i godzinę':''}</div>
       ${instrHtml}
       <div class="slot-grid" id="w-slots">
         ${slots.map(s=>{
-          const taken = dayLessons.some(l=>l.time===s.time && l.instructorId===wData.instructorId);
-          const inBreak = breakStartMin!==null && s.minutes < breakEndMin && s.minutes + settings.lessonDuration > breakStartMin;
-          const inAbsence = wData.instructorId && absenceBlocksMinutes(wData.instructorId, wData.date, s.minutes);
-          const overLimit = limitReached && !taken;
-          const unavailable = taken || inBreak || overLimit || inAbsence;
-          const reason = inAbsence?'Nieobecność instruktora':inBreak?'Przerwa instruktora':overLimit?'Dzienny limit godzin osiągnięty':'';
-          return `<div class="slot ${unavailable?'taken':''} ${wData.time===s.time?'selected':''}" onclick="pickTime('${s.time}')" title="${reason}">${s.time}</div>`;
+          const freeCount = s.freeDates.length;
+          const noneFree = freeCount===0;
+          const partial = multi && freeCount>0 && freeCount<dates.length;
+          const title = s.blockedDates.length
+            ? s.blockedDates.map(b=>`${fmtDatePL(b.date)}: ${b.reason}`).join('\n')
+            : '';
+          return `<div class="slot ${noneFree?'taken':''} ${partial?'partial':''} ${wData.time===s.time?'selected':''}" onclick="pickTime('${s.time}')" title="${esc(title)}">
+            ${s.time}${multi?`<span class="slot-count">${freeCount}/${dates.length}</span>`:''}
+          </div>`;
         }).join('')}
       </div>
       ${hintParts.length ? `<div style="margin-top:10px;font-size:12.5px;color:var(--mist-dim);">${hintParts.join(' · ')}</div>` : ''}
@@ -2231,11 +2438,11 @@ function renderWizardStep(){
     }
     body.innerHTML = `<div class="wizard-panel">
       <h2>Potwierdź zapis</h2>
-      <div class="wizard-hint">Sprawdź dane przed zapisaniem</div>
+      <div class="wizard-hint">${wData.repeatFor ? 'Dane kursanta przepisane z poprzednich zajęć' : 'Sprawdź dane przed zapisaniem'}</div>
       <div class="card" style="margin:0;">
         <div class="summary-list">
-          <div class="summary-row"><span class="k">Data</span><span class="v">${fmtDatePL(wData.date)}</span></div>
-          <div class="summary-row"><span class="k">Godzina</span><span class="v">${wData.time}</span></div>
+          <div class="summary-row"><span class="k">${wData.dates.length>1?`Dni (${wData.dates.length})`:'Data'}</span><span class="v">${[...wData.dates].sort().map(fmtDatePL).join('<br>')}</span></div>
+          <div class="summary-row"><span class="k">Godzina</span><span class="v">${wData.time}${wData.dates.length>1?' (każdego dnia)':''}</span></div>
           <div class="summary-row"><span class="k">Instruktor</span><span class="v">${esc(wData.instructorName)}</span></div>
           <div class="summary-row"><span class="k">Uczeń</span><span class="v">${esc(wData.name)}</span></div>
           <div class="summary-row"><span class="k">Telefon</span><span class="v">${esc(wData.countryCode)} ${esc(wData.phone)}</span></div>
@@ -2254,7 +2461,7 @@ function renderWizardStep(){
             <input type="number" min="2" max="12" value="${wData.groupSize}" oninput="onGroupSizeInput(this)">
           </div>` : ''}
 
-          <div class="opt-label">Cena za te zajęcia</div>
+          <div class="opt-label">Cena za jedne zajęcia${wData.dates.length>1?` (łącznie za ${wData.dates.length} dni: ${fmtMoney(wData.price*wData.dates.length)})`:''}</div>
           <div class="field" style="margin-bottom:6px;">
             <div style="position:relative;">
               <input type="number" min="0" step="5" id="w-price-input" value="${wData.price}" style="padding-right:52px;" oninput="onPriceInput(this)">
@@ -2300,7 +2507,7 @@ function renderWizardCal(){
     const iso = `${wCalYear}-${pad(wCalMonth+1)}-${pad(d)}`;
     const isPast = iso < todayIso;
     const isToday = iso===todayIso;
-    const sel = wData.date===iso;
+    const sel = wData.dates.includes(iso);
     html+=`<div class="big-cal-cell ${isPast?'disabled':''} ${isToday?'today':''} ${sel?'selected':''}" onclick="${isPast?'':`pickDate('${iso}')`}">${d}</div>`;
   }
   html+='</div>';
@@ -2315,7 +2522,13 @@ window.wCalNav = function(dir){
 
 /* --- Step interaction handlers: every one is exposed on window because
    inline HTML attributes cannot see module-scope variables/functions --- */
-window.pickDate = function(iso){ wData.date = iso; renderWizardCal(); document.getElementById('wizard-next-btn').disabled = false; };
+window.pickDate = function(iso){
+  const i = wData.dates.indexOf(iso);
+  if(i>=0) wData.dates.splice(i,1); else wData.dates.push(iso);
+  wData.time = null; // dostępne godziny zależą od wybranych dni
+  renderWizardStep();
+};
+window.clearWizardDates = function(){ wData.dates = []; wData.time = null; renderWizardStep(); };
 window.pickInstructor = function(uid, name){ wData.instructorId = uid; wData.instructorName = name; wData.time = null; renderWizardStep(); };
 window.pickTime = function(t){ wData.time = t; renderWizardStep(); };
 window.onCustomTimeInput = function(el){
@@ -2405,26 +2618,44 @@ MODAL_IDS.forEach(id=>{
 
 window.submitWizard = async function(){
   const btn = document.getElementById('wizard-next-btn');
+  const dates = [...wData.dates].sort();
 
   // Sprawdzenia tuż przed zapisem — dane mogły się zmienić, odkąd wybrano
-  // godzinę (ktoś inny mógł w tym czasie zająć ten termin albo instruktor
-  // mógł zgłosić nieobecność).
-  const clash = lessons.find(l=>l.date===wData.date && l.time===wData.time
-    && l.instructorId===wData.instructorId && l.status!=='cancelled');
-  if(clash){
-    showToast(`Ten termin jest już zajęty (uczeń: ${clash.studentName})`);
+  // godzinę (ktoś inny mógł w tym czasie zająć termin albo instruktor mógł
+  // zgłosić nieobecność). Przy zapisie na kilka dni sprawdzamy każdy z nich.
+  const clashes = [], absentDays = [];
+  dates.forEach(d=>{
+    const c = lessons.find(l=>l.date===d && l.time===wData.time
+      && l.instructorId===wData.instructorId && l.status!=='cancelled');
+    if(c) clashes.push({date:d, name:c.studentName});
+    else if(absenceBlocksMinutes(wData.instructorId, d, toMinutes(wData.time))) absentDays.push(d);
+  });
+
+  if(clashes.length === dates.length){
+    showToast('Ten termin jest zajęty we wszystkich wybranych dniach');
     return;
   }
-  if(absenceBlocksMinutes(wData.instructorId, wData.date, toMinutes(wData.time))){
-    if(!confirm('Instruktor ma na ten termin zgłoszoną nieobecność. Zapisać mimo to?')) return;
+  let toBook = dates.filter(d=>!clashes.some(c=>c.date===d));
+  if(clashes.length > 0){
+    const ok = confirm(
+      `W ${clashes.length} z ${dates.length} dni ten termin jest już zajęty:\n` +
+      clashes.map(c=>`• ${fmtDatePL(c.date)} — ${c.name}`).join('\n') +
+      `\n\nZapisać ucznia na pozostałe ${toBook.length} dni?`);
+    if(!ok) return;
   }
+  if(absentDays.length > 0){
+    const ok = confirm(
+      `Instruktor ma zgłoszoną nieobecność w ${absentDays.length} z tych dni:\n` +
+      absentDays.map(fmtDatePL).join('\n') + `\n\nZapisać mimo to?`);
+    if(!ok) toBook = toBook.filter(d=>!absentDays.includes(d));
+  }
+  if(toBook.length === 0){ showToast('Nie wybrano żadnego dnia do zapisania'); return; }
 
   btn.disabled = true; btn.textContent = 'Zapisywanie…';
   try{
     const instructor = instructors.find(i=>i.uid===wData.instructorId) || (currentUser.role==='instructor' ? currentUser : null);
     const instructorPay = instructor ? (instructor.pricePerLesson ?? settings.instructorRateDefault) : settings.instructorRateDefault;
-    await addDoc(collection(db,'lessons'), {
-      date: wData.date,
+    const base = {
       time: wData.time,
       durationMinutes: settings.lessonDuration,
       instructorId: wData.instructorId,
@@ -2442,11 +2673,16 @@ window.submitWizard = async function(){
       reminderSent: false,
       createdBy: currentUser.uid,
       createdAt: serverTimestamp()
-    });
-    showToast('Uczeń zapisany na zajęcia');
+    };
+    // każdy dzień to osobne zajęcia — można je potem edytować niezależnie
+    await Promise.all(toBook.map(date => addDoc(collection(db,'lessons'), {...base, date})));
+
+    showToast(toBook.length===1
+      ? 'Uczeń zapisany na zajęcia'
+      : `Uczeń zapisany na ${toBook.length} dni`);
     closeWizard();
-    calSelectedDate = wData.date;
-    currentPage = 'zapisy';
+    calSelectedDate = toBook[0];
+    currentPage = 'grafik';
     renderPage();
   }catch(e){
     showToast('Błąd zapisu: '+(e.message||''));
