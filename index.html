@@ -391,6 +391,29 @@ tbody tr:hover{background:rgba(255,255,255,0.035);}
 .icon-btn:hover{background:var(--navy-3);}
 .status-select{background:var(--navy);border:1.5px solid var(--navy-4);color:var(--snow);border-radius:8px;padding:7px 10px;font-size:13.5px;font-weight:600;min-width:130px;}
 /* pełnoekranowy grafik dnia — pasek nawigacji między dniami */
+/* ===== POGODA ===== */
+.time-cell{white-space:nowrap;}
+.wx{display:inline-flex;align-items:center;gap:3px;margin-left:8px;font-size:14px;vertical-align:middle;}
+.wx-temp{font-size:11px;font-weight:700;color:var(--mist-dim);}
+.wx-strip{margin-top:6px;border-top:1px solid var(--navy-3);padding-top:12px;}
+.wx-strip-head{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--mist-dim);font-weight:700;margin-bottom:10px;}
+.wx-cells{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;}
+.wx-cell{flex:0 0 auto;min-width:62px;background:var(--navy);border:1px solid var(--navy-3);border-radius:10px;padding:8px 6px;text-align:center;}
+.wx-cell-h{font-size:10.5px;color:var(--mist-dim);font-weight:700;}
+.wx-cell-i{font-size:20px;line-height:1.3;}
+.wx-cell-t{font-family:var(--font-display);font-size:17px;font-weight:800;}
+.wx-cell-w{font-size:9.5px;color:var(--mist-dim);}
+.wx-strip-empty{margin-top:10px;font-size:12.5px;color:var(--mist-dim);}
+
+/* ===== NOTATKI DNIA ===== */
+.note-list{display:flex;flex-direction:column;gap:10px;margin-bottom:16px;}
+.note-item{background:var(--navy);border:1px solid var(--navy-3);border-left:3px solid var(--ice);border-radius:10px;padding:10px 12px;}
+.note-meta{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--mist-dim);margin-bottom:4px;}
+.note-meta b{color:var(--snow);font-size:12.5px;}
+.note-del{margin-left:auto;background:transparent;border:none;color:var(--mist-dim);font-size:13px;padding:2px 4px;}
+.note-del:hover{color:var(--danger);}
+.note-text{font-size:14px;line-height:1.5;white-space:pre-wrap;word-break:break-word;}
+
 /* sekcja operacji nieodwracalnych */
 .danger-zone{border-color:rgba(230,57,70,0.4);background:linear-gradient(180deg,rgba(230,57,70,0.06),transparent 60%),var(--navy-2);}
 .danger-zone h3{color:var(--danger);}
@@ -855,8 +878,22 @@ if ('serviceWorker' in navigator) {
              a sama operacja wymaga dwóch potwierdzeń, w tym wpisania słowa
              USUŃ. Usuwanie idzie paczkami, więc działa też przy tysiącach
              rekordów
+   1.16.0 — pogoda i notatki dnia:
+           • przy każdej godzinie w rozpisce jest ikonka pogody z temperaturą
+             (dotknij/najedź, by zobaczyć opis i wiatr), a nad grafikiem
+             w widoku "Grafik dnia" jest pasek z prognozą na cały dzień
+           • prognoza dla Przełęczy Spalonej (50.277°N, 16.537°E, 811 m),
+             3 dni do przodu, odświeżana co 6 godzin i zapisywana w bazie —
+             pobiera ją jedno urządzenie, a widzą wszystkie
+           • źródłem jest Open-Meteo, a nie bezpośrednio yr.no: regulamin
+             yr.no/api.met.no zabrania pobierania wprost z przeglądarki
+             (nie da się tam ustawić wymaganego nagłówka User-Agent, grozi
+             to zablokowaniem dostępu)
+           • notatki na dany dzień — wspólna tablica dla operatora
+             i wszystkich instruktorów, każdy może dopisać swoją, widać kto
+             i kiedy pisał; autor (oraz operator) może swoją notatkę usunąć
 ===================================================================== */
-const APP_VERSION = '1.15.0';
+const APP_VERSION = '1.16.0';
 document.querySelectorAll('.app-version').forEach(el => el.textContent = 'v' + APP_VERSION);
 
 const LEVELS = [
@@ -891,6 +928,9 @@ let studentSearchQuery = '';
 let absences = [];        // reported instructor unavailability (all-day or partial)
 let unsubAbsences = null;
 let settings = {basePrice:120, instructorRateDefault:60, lessonDuration:55, dayStart:9, dayEnd:16, smsWebhookUrl:'', breakBetweenLessons:5, lunchBreakEnabled:true, lunchBreakStart:'13:00', lunchBreakDuration:30, lunchBreakOverrides:{}};
+let weather = null;        // {fetchedAt, hours:{"YYYY-MM-DDTHH": {t, code, wind, precip}}}
+let dayNotes = {};         // "YYYY-MM-DD" -> {entries:[{author, text, at}]}
+let unsubWeather = null, unsubDayNotes = null;
 let currentPage = 'zapisy';
 
 /* ============ HELPERS ============ */
@@ -1059,6 +1099,8 @@ onAuthStateChanged(auth, async (user)=>{
     if(unsubLessons) unsubLessons();
     if(unsubStudents) unsubStudents();
     if(unsubAbsences) unsubAbsences();
+    if(unsubWeather) unsubWeather();
+    if(unsubDayNotes) unsubDayNotes();
     return;
   }
   const snap = await getDoc(doc(db,'users',user.uid));
@@ -1074,6 +1116,8 @@ onAuthStateChanged(auth, async (user)=>{
   subscribeLessons();
   subscribeStudents();
   subscribeAbsences();
+  subscribeWeather();
+  subscribeDayNotes();
   renderNav();
   currentPage = 'zapisy';
   renderPage();
@@ -1161,6 +1205,191 @@ function subscribeAbsences(){
     safeRerender();
   }, (err)=>showToast('Błąd połączenia z bazą (nieobecności)'));
 }
+/* =====================================================================
+   POGODA — Przełęcz Spalona (50.277°N, 16.537°E, 811 m n.p.m.)
+
+   Dane: Open-Meteo (darmowe, bez klucza, przystosowane do wywołań wprost
+   z przeglądarki). Nie pobieramy z yr.no/api.met.no bezpośrednio, bo ich
+   regulamin tego zabrania dla stron w przeglądarce — nie da się tam ustawić
+   wymaganego nagłówka User-Agent, co grozi zablokowaniem dostępu.
+
+   Prognoza jest zapisywana w Firestore (dokument weather/current), więc
+   pobiera ją jedno urządzenie, a widzą wszystkie. Odświeżanie co 6 godzin,
+   zakres 3 dni do przodu.
+===================================================================== */
+const WEATHER_LAT = 50.2770, WEATHER_LON = 16.5372;
+const WEATHER_REFRESH_MS = 6*60*60*1000;
+
+/* Kody pogodowe WMO -> ikona i opis po polsku */
+function weatherMeta(code){
+  const m = {
+    0:['☀️','Bezchmurnie'], 1:['🌤️','Przeważnie słonecznie'], 2:['⛅','Częściowe zachmurzenie'], 3:['☁️','Pochmurno'],
+    45:['🌫️','Mgła'], 48:['🌫️','Mgła osadzająca szron'],
+    51:['🌦️','Mżawka'], 53:['🌦️','Mżawka'], 55:['🌦️','Silna mżawka'],
+    56:['🌧️','Marznąca mżawka'], 57:['🌧️','Marznąca mżawka'],
+    61:['🌧️','Słaby deszcz'], 63:['🌧️','Deszcz'], 65:['🌧️','Silny deszcz'],
+    66:['🌧️','Marznący deszcz'], 67:['🌧️','Marznący deszcz'],
+    71:['🌨️','Słabe opady śniegu'], 73:['🌨️','Opady śniegu'], 75:['❄️','Silne opady śniegu'],
+    77:['🌨️','Śnieg ziarnisty'],
+    80:['🌦️','Przelotny deszcz'], 81:['🌧️','Przelotny deszcz'], 82:['⛈️','Ulewa'],
+    85:['🌨️','Przelotny śnieg'], 86:['❄️','Silny przelotny śnieg'],
+    95:['⛈️','Burza'], 96:['⛈️','Burza z gradem'], 99:['⛈️','Silna burza z gradem'],
+  };
+  return m[code] || ['❓','—'];
+}
+
+function subscribeWeather(){
+  if(unsubWeather) unsubWeather();
+  unsubWeather = onSnapshot(doc(db,'weather','current'), (snap)=>{
+    weather = snap.exists() ? snap.data() : null;
+    maybeRefreshWeather();
+    safeRerender();
+  }, ()=>{ /* brak pogody nie może psuć reszty aplikacji */ });
+}
+
+async function maybeRefreshWeather(){
+  const age = weather?.fetchedAt ? Date.now() - weather.fetchedAt : Infinity;
+  if(age < WEATHER_REFRESH_MS) return;           // świeże — nic nie robimy
+  if(maybeRefreshWeather._busy) return;          // już pobieramy
+  maybeRefreshWeather._busy = true;
+  try{
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${WEATHER_LAT}&longitude=${WEATHER_LON}`
+      + `&hourly=temperature_2m,weather_code,wind_speed_10m,precipitation,snow_depth`
+      + `&timezone=Europe%2FWarsaw&forecast_days=4&elevation=811`;
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const data = await res.json();
+    const h = data.hourly;
+    const hours = {};
+    h.time.forEach((t,i)=>{
+      hours[t.slice(0,13)] = {                    // klucz "YYYY-MM-DDTHH"
+        t: Math.round(h.temperature_2m[i]),
+        code: h.weather_code[i],
+        wind: Math.round(h.wind_speed_10m[i]),
+        precip: h.precipitation[i],
+        snow: h.snow_depth ? h.snow_depth[i] : null
+      };
+    });
+    await setDoc(doc(db,'weather','current'), {
+      fetchedAt: Date.now(), lat: WEATHER_LAT, lon: WEATHER_LON, hours
+    });
+  }catch(e){
+    console.warn('Nie udało się pobrać pogody:', e);
+  }finally{
+    maybeRefreshWeather._busy = false;
+  }
+}
+
+/* Pogoda na konkretną datę i godzinę zajęć */
+function weatherAt(dateIso, timeHHMM){
+  if(!weather?.hours) return null;
+  const hour = timeHHMM.split(':')[0];
+  return weather.hours[`${dateIso}T${pad(Number(hour))}`] || null;
+}
+function weatherIconHtml(dateIso, timeHHMM){
+  const w = weatherAt(dateIso, timeHHMM);
+  if(!w) return '';
+  const [icon, desc] = weatherMeta(w.code);
+  return `<span class="wx" title="${esc(desc)}, ${w.t}°C, wiatr ${w.wind} km/h">${icon}<span class="wx-temp">${w.t}°</span></span>`;
+}
+
+/* Pasek pogodowy na cały dzień roboczy — pokazywany nad grafikiem */
+function renderDayWeatherStrip(dateIso){
+  if(!weather?.hours) return '';
+  const {slots} = generateDaySlots(dateIso);
+  const cells = slots.map(t=>{
+    const time = fromMinutes(t);
+    const w = weatherAt(dateIso, time);
+    if(!w) return null;
+    const [icon, desc] = weatherMeta(w.code);
+    return `<div class="wx-cell" title="${esc(desc)}">
+      <div class="wx-cell-h">${time}</div>
+      <div class="wx-cell-i">${icon}</div>
+      <div class="wx-cell-t">${w.t}°</div>
+      <div class="wx-cell-w">${w.wind} km/h</div>
+    </div>`;
+  }).filter(Boolean);
+  if(cells.length===0) return `<div class="wx-strip-empty">Brak prognozy na ten dzień (prognoza obejmuje 3 dni do przodu).</div>`;
+  const ageH = weather.fetchedAt ? Math.floor((Date.now()-weather.fetchedAt)/3600000) : null;
+  return `<div class="wx-strip">
+    <div class="wx-strip-head">Pogoda — Przełęcz Spalona (811 m)${ageH!==null?` · dane sprzed ${ageH} h`:''}</div>
+    <div class="wx-cells">${cells.join('')}</div>
+  </div>`;
+}
+
+/* =====================================================================
+   NOTATKI NA DANY DZIEŃ — wspólne dla operatora i wszystkich instruktorów
+===================================================================== */
+function subscribeDayNotes(){
+  if(unsubDayNotes) unsubDayNotes();
+  unsubDayNotes = onSnapshot(collection(db,'dayNotes'), (qs)=>{
+    dayNotes = {};
+    qs.forEach(d=>dayNotes[d.id] = d.data());
+    safeRerender();
+  }, ()=>showToast('Błąd połączenia z bazą (notatki dnia)'));
+}
+
+window.addDayNote = async function(dateIso){
+  const input = document.getElementById('day-note-input');
+  const text = (input?.value || '').trim();
+  if(!text){ showToast('Wpisz treść notatki'); return; }
+  const entry = {
+    id: 'n'+Date.now()+Math.random().toString(36).slice(2,7),
+    text,
+    author: currentUser.name || currentUser.email,
+    authorId: currentUser.uid,
+    at: Date.now()
+  };
+  const existing = dayNotes[dateIso]?.entries || [];
+  try{
+    await setDoc(doc(db,'dayNotes',dateIso), {entries:[...existing, entry]}, {merge:true});
+    input.value = '';
+    showToast('Notatka dodana');
+  }catch(e){
+    showToast('Błąd zapisu — sprawdź reguły Firestore dla kolekcji "dayNotes"');
+  }
+};
+
+window.deleteDayNote = async function(dateIso, noteId){
+  const existing = dayNotes[dateIso]?.entries || [];
+  const note = existing.find(n=>n.id===noteId);
+  // swoją notatkę może usunąć autor; operator może usunąć każdą
+  if(!note || (note.authorId!==currentUser.uid && currentUser.role!=='operator')){
+    showToast('Możesz usuwać tylko własne notatki');
+    return;
+  }
+  if(!confirm('Usunąć tę notatkę?')) return;
+  try{
+    await setDoc(doc(db,'dayNotes',dateIso), {entries: existing.filter(n=>n.id!==noteId)}, {merge:true});
+    showToast('Notatka usunięta');
+  }catch(e){
+    showToast('Błąd usuwania notatki');
+  }
+};
+
+function renderDayNotesCard(dateIso){
+  const entries = [...(dayNotes[dateIso]?.entries || [])].sort((a,b)=>a.at-b.at);
+  return `<div class="card">
+    <h3>📝 Notatki na ${fmtDatePL(dateIso)}</h3>
+    <div style="color:var(--mist-dim);font-size:12.5px;margin-bottom:12px;">Widoczne dla operatora i wszystkich instruktorów — każdy może dopisać swoją.</div>
+    ${entries.length===0 ? `<div style="color:var(--mist-dim);font-size:13.5px;margin-bottom:14px;">Brak notatek na ten dzień.</div>` :
+      `<div class="note-list">${entries.map(n=>`
+        <div class="note-item">
+          <div class="note-meta">
+            <b>${esc(n.author)}</b>
+            <span>${new Date(n.at).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
+            ${(n.authorId===currentUser.uid || currentUser.role==='operator')
+              ? `<button class="note-del" onclick="deleteDayNote('${dateIso}','${n.id}')" title="Usuń">✕</button>` : ''}
+          </div>
+          <div class="note-text">${esc(n.text)}</div>
+        </div>`).join('')}</div>`}
+    <div class="field" style="margin-bottom:10px;">
+      <textarea id="day-note-input" rows="2" placeholder="Np. oblodzony stok przy wyciągu, brak nart 120 cm, grupa przedszkolna o 11…"></textarea>
+    </div>
+    <button class="btn btn-primary" onclick="addDayNote('${dateIso}')">Dodaj notatkę</button>
+  </div>`;
+}
+
 function absencesFor(instructorId, dateIso){
   return absences.filter(a=>a.instructorId===instructorId && a.date===dateIso);
 }
@@ -1349,6 +1578,7 @@ function renderDayViewPage(main){
         <div class="stat c-lv5"><div class="num">${fmtMoney(revenue)}</div><div class="lbl">Przychód dnia</div></div>
         <div class="stat ${unpaidCount>0?'c-danger':''}"><div class="num">${unpaidCount}</div><div class="lbl">Do zapłaty</div></div>
       </div>
+      ${renderDayWeatherStrip(calSelectedDate)}
     </div>
 
     ${dayAbsences.length>0 ? `<div class="card" style="background:rgba(230,57,70,0.08);border-color:rgba(230,57,70,0.35);">
@@ -1364,6 +1594,8 @@ function renderDayViewPage(main){
       </div>
       ${renderDayScheduleGrid(calSelectedDate)}
     </div>
+
+    ${renderDayNotesCard(calSelectedDate)}
   `;
 }
 window.dayViewShift = function(days){
@@ -1432,7 +1664,7 @@ function renderDayScheduleGrid(dateIso){
     }
     const t = row.t;
     const time = fromMinutes(t);
-    html += `<tr><td><b>${time}</b></td>`;
+    html += `<tr><td class="time-cell"><b>${time}</b>${weatherIconHtml(dateIso, time)}</td>`;
     instructors.forEach(ins=>{
       const lesson = dayLessons.find(l=>l.time===time && l.instructorId===ins.uid);
       if(lesson){
