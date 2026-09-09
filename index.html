@@ -693,14 +693,31 @@ tbody tr:hover{background:rgba(255,255,255,0.035);}
       <div style="font-size:13px;color:var(--mist-dim);margin-bottom:10px;">
         Login (e-mail): <b class="app-mono" id="im-current-email" style="color:var(--snow);"></b>
       </div>
-      <button type="button" class="btn btn-outline btn-block" style="margin-bottom:10px;" onclick="sendInstructorPasswordReset()">
-        🔑 Wyślij link do ustawienia nowego hasła
+      <div class="field">
+        <label>Ustaw nowe hasło ręcznie</label>
+        <div style="display:flex;gap:8px;">
+          <input id="im-newpass" type="text" placeholder="min. 6 znaków" autocomplete="new-password" style="flex:1;">
+          <button type="button" class="icon-btn" onclick="generatePassword()" title="Wygeneruj losowe hasło">🎲</button>
+        </div>
+      </div>
+      <button type="button" class="btn btn-primary btn-block" style="margin-bottom:14px;" onclick="setInstructorPassword()">
+        Zapisz nowe hasło
       </button>
-      <div style="font-size:12px;color:var(--mist-dim);line-height:1.5;">
-        Instruktor dostanie e-mail z linkiem i sam ustawi hasło — Ty nie musisz go znać.
-        Zmiana samego adresu e-mail wymaga uprawnień administratora po stronie serwera
-        (patrz plik <b>functions-example.js</b>); najprościej wtedy usunąć konto
-        i założyć nowe na właściwy adres.
+      <div style="font-size:12px;color:var(--mist-dim);line-height:1.5;margin-bottom:16px;">
+        Hasło zmienisz od razu i przekażesz je instruktorowi osobiście.
+        <b>Wymaga wdrożonej funkcji</b> <span class="app-mono">updateInstructorCredentials</span>
+        (plik functions-example.js) — bez niej przeglądarka nie ma uprawnień do zmiany
+        cudzego hasła. Instruktor zostanie wylogowany na wszystkich urządzeniach.
+      </div>
+
+      <div style="border-top:1px dashed var(--navy-3);padding-top:14px;">
+        <button type="button" class="btn btn-outline btn-block" style="margin-bottom:10px;" onclick="sendInstructorPasswordReset()">
+          🔑 Zamiast tego wyślij link do samodzielnej zmiany
+        </button>
+        <div style="font-size:12px;color:var(--mist-dim);line-height:1.5;">
+          Ta opcja działa bez wdrażania czegokolwiek — instruktor dostanie e-mail
+          i sam ustawi hasło, którego Ty nie będziesz znać.
+        </div>
       </div>
     </div>
 
@@ -747,6 +764,7 @@ import {
 import {
   getMessaging, getToken, onMessage, isSupported as isMessagingSupported
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-messaging.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-functions.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBLd4jinbw7dbxocfoawqNMh1gGQgNEAkU",
@@ -760,6 +778,12 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+
+/* Region wdrożonych funkcji w chmurze. Domyślnie Firebase wdraża je do
+   us-central1 — jeśli wdrożysz je do innego regionu (np. europe-central2),
+   zmień tę wartość, inaczej wywołania nie trafią pod właściwy adres. */
+const FUNCTIONS_REGION = 'us-central1';
+const functions = getFunctions(app, FUNCTIONS_REGION);
 
 /* Rejestracja service workera — umożliwia instalację "jak aplikacja" na telefonie */
 if ('serviceWorker' in navigator) {
@@ -980,8 +1004,15 @@ if ('serviceWorker' in navigator) {
            • powiadomienie push o zaległościach (funkcja notifyUnpaidLessons
              w functions-example.js) — operator dostaje zbiorcze, instruktor
              informację o swoich zajęciach; każde zgłaszane tylko raz
+   1.21.0 — operator może zmienić hasło instruktora: w edycji instruktora
+           doszło pole na nowe hasło (z generatorem czytelnych haseł) obok
+           dotychczasowej opcji wysłania linku do samodzielnej zmiany.
+           Ręczna zmiana wymaga wdrożonej funkcji updateInstructorCredentials
+           — przeglądarka nie ma uprawnień do zmiany cudzego hasła. Gdy
+           funkcja nie jest wdrożona, aplikacja mówi o tym wprost i odsyła
+           do opcji z linkiem, która działa bez konfiguracji
 ===================================================================== */
-const APP_VERSION = '1.20.0';
+const APP_VERSION = '1.21.0';
 document.querySelectorAll('.app-version').forEach(el => el.textContent = 'v' + APP_VERSION);
 
 const LEVELS = [
@@ -2568,9 +2599,46 @@ window.openInstructorModal = function(uid){
   // sekcja danych logowania ma sens tylko dla istniejącego konta
   document.getElementById('im-credentials-block').style.display = uid ? 'block' : 'none';
   if(uid) document.getElementById('im-current-email').textContent = i?.email || '—';
+  const npEl = document.getElementById('im-newpass');
+  if(npEl) npEl.value = '';
   document.getElementById('instructor-modal-backdrop').classList.add('active');
 };
 window.closeInstructorModal = function(){ document.getElementById('instructor-modal-backdrop').classList.remove('active'); };
+
+/* Generator czytelnego hasła — bez znaków mylących (0/O, 1/l/I) */
+window.generatePassword = function(){
+  const chars = 'abcdefghijkmnpqrstuvwxyz23456789';
+  let p = '';
+  for(let i=0;i<10;i++) p += chars[Math.floor(Math.random()*chars.length)];
+  document.getElementById('im-newpass').value = p;
+};
+
+/* Zmiana hasła instruktora przez funkcję administracyjną w chmurze.
+   Przeglądarka nie może zmienić cudzego hasła — Firebase na to nie pozwala. */
+window.setInstructorPassword = async function(){
+  const i = instructors.find(x=>x.uid===editingInstructorUid);
+  if(!i){ showToast('Najpierw zapisz instruktora'); return; }
+  const pass = document.getElementById('im-newpass').value.trim();
+  if(pass.length < 6){ showToast('Hasło musi mieć min. 6 znaków'); return; }
+  if(!confirm(`Ustawić nowe hasło dla: ${i.name}?\n\nHasło: ${pass}\n\nZapisz je teraz — po zamknięciu okna nie będzie już widoczne.\nInstruktor zostanie wylogowany na wszystkich urządzeniach.`)) return;
+
+  try{
+    const call = httpsCallable(functions, 'updateInstructorCredentials');
+    await call({uid: i.uid, newPassword: pass});
+    showToast('Hasło zmienione dla ' + i.name);
+    document.getElementById('im-newpass').value = '';
+  }catch(e){
+    const code = e?.code || '';
+    // funkcja niewdrożona to najczęstszy przypadek — mówimy wprost, co zrobić
+    if(code.includes('not-found') || code.includes('internal') || code.includes('unavailable')){
+      showToast('Funkcja updateInstructorCredentials nie jest wdrożona — użyj linku poniżej albo wdroż ją wg SETUP.md');
+    }else if(code.includes('permission-denied')){
+      showToast('Brak uprawnień — tylko operator może zmieniać hasła');
+    }else{
+      showToast('Nie udało się zmienić hasła: '+(e?.message||''));
+    }
+  }
+};
 
 window.sendInstructorPasswordReset = async function(){
   const i = instructors.find(x=>x.uid===editingInstructorUid);
