@@ -346,3 +346,67 @@ exports.notifyUnpaidLessons = onSchedule(
     console.log(`Zgłoszono ${due.length} nieopłaconych zajęć.`);
   }
 );
+
+/* =====================================================================
+   PRZYPOMNIENIE O WYSYŁCE SMS-ÓW (push do operatora)
+   ---------------------------------------------------------------------
+   O godzinie ustawionej w aplikacji (Ustawienia → Przypomnienia SMS)
+   wysyła operatorowi powiadomienie: "Jutro 5 przypomnień do wysłania".
+   Operator otwiera zakładkę Przypomnienia i wysyła je z telefonu.
+
+   Funkcja NIE wysyła SMS-ów — one wychodzą z telefonu operatora, więc
+   nie ma żadnych kosztów ani rejestracji u dostawcy SMS.
+===================================================================== */
+exports.notifySmsQueue = onSchedule(
+  {schedule: "every 15 minutes", timeZone: "Europe/Warsaw"},
+  async () => {
+    const db = admin.firestore();
+    const s = (await db.doc("settings/general").get()).data() || {};
+    if (s.smsPushEnabled === false) return;
+
+    const pushTime = s.smsPushTime || "18:00";
+    const when = s.smsPushDay || "evening";
+
+    const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Europe/Warsaw"}));
+    const [ph, pm] = pushTime.split(":").map(Number);
+    if (Math.abs((now.getHours() * 60 + now.getMinutes()) - (ph * 60 + pm)) >= 15) return;
+
+    const target = new Date(now);
+    if (when === "evening") target.setDate(target.getDate() + 1);
+    const pad = (n) => String(n).padStart(2, "0");
+    const dateIso = `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}`;
+
+    // jedno powiadomienie dziennie
+    const guard = db.doc(`smsQueueLog/${dateIso}`);
+    if ((await guard.get()).exists) return;
+    await guard.set({sentAt: admin.firestore.FieldValue.serverTimestamp()});
+
+    const snap = await db.collection("lessons").where("date", "==", dateIso).get();
+    const pendingCount = snap.docs.filter((d) => {
+      const l = d.data();
+      if (l.status === "cancelled" || l.reminderSent) return false;
+      if (l.smsOverride === "skip") return false;
+      if (l.smsOverride === "force" || s.smsRuleAlways) return true;
+      // pełną regułę liczy aplikacja; tu wystarczy przybliżenie, żeby
+      // nie powiadamiać, gdy na pewno nie ma czego wysyłać
+      return true;
+    }).length;
+    if (pendingCount === 0) return;
+
+    const usersSnap = await db.collection("users").where("role", "==", "operator").get();
+    const dayWord = when === "evening" ? "Jutro" : "Dziś";
+
+    await Promise.all(usersSnap.docs.map(async (u) => {
+      const tokens = u.data().fcmTokens || [];
+      if (!tokens.length) return;
+      await admin.messaging().sendEachForMulticast({
+        tokens,
+        notification: {
+          title: `${dayWord}: przypomnienia SMS do wysłania`,
+          body: `Do sprawdzenia ${pendingCount} zajęć. Dotknij, aby otworzyć kolejkę.`,
+        },
+        webpush: {fcmOptions: {link: "/"}, notification: {icon: "/icon-192.png"}},
+      }).catch((e) => console.error("push error", e));
+    }));
+  }
+);

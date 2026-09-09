@@ -426,6 +426,20 @@ tbody tr:hover{background:rgba(255,255,255,0.035);}
   .dayview-date b{font-size:18px;}
   .dayview-date input{font-size:12px;padding:5px 8px;}
 }
+/* kolejka SMS w zakładce Przypomnienia */
+.sms-queue{display:flex;flex-direction:column;gap:10px;}
+.sms-item{display:flex;align-items:flex-start;gap:12px;background:var(--navy);border:1px solid var(--navy-3);border-left:3px solid var(--lv5);border-radius:11px;padding:12px 14px;}
+.sms-num{width:26px;height:26px;flex-shrink:0;border-radius:50%;background:var(--navy-3);color:var(--mist);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12.5px;}
+.sms-body{flex:1;min-width:0;}
+.sms-reason{font-size:12px;color:var(--mist-dim);margin-top:2px;}
+.sms-preview{margin-top:8px;padding:8px 10px;background:var(--navy-2);border-radius:8px;font-size:12.5px;color:var(--mist);line-height:1.45;}
+.sms-actions{display:flex;flex-direction:column;gap:6px;flex-shrink:0;}
+@media(max-width:640px){
+  .sms-item{flex-wrap:wrap;}
+  .sms-actions{flex-direction:row;width:100%;margin-top:6px;}
+  .sms-actions .btn{flex:1;text-align:center;}
+}
+.app-mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.94em;}
 .nav-badge{margin-left:auto;background:var(--danger);color:#fff;border-radius:20px;padding:1px 7px;font-size:10.5px;font-weight:800;}
 @keyframes payPulse{0%,100%{box-shadow:0 0 0 0 rgba(230,57,70,0.55);}50%{box-shadow:0 0 0 5px rgba(230,57,70,0);}}
 .pay-toggle.overdue{border-color:var(--danger);color:var(--danger);background:rgba(230,57,70,0.12);animation:payPulse 2s infinite;}
@@ -1011,8 +1025,24 @@ if ('serviceWorker' in navigator) {
            — przeglądarka nie ma uprawnień do zmiany cudzego hasła. Gdy
            funkcja nie jest wdrożona, aplikacja mówi o tym wprost i odsyła
            do opcji z linkiem, która działa bez konfiguracji
+   1.22.0 — przebudowana zakładka Przypomnienia — wysyłka SMS z telefonu
+           operatora, bez bramki, kosztów i rejestracji u dostawcy:
+           • kolejka SMS-ów z numeracją: przycisk "Wyślij" otwiera SMS-nik
+             z gotowym numerem i treścią, po powrocie pozycja odhacza się
+             sama; osobno wysłane i pominięte
+           • reguły decydujące komu wysłać (pierwsze zajęcia / zapisany
+             X dni temu / wraca po przerwie X dni) — ograniczają wysyłkę
+             z ~20 do ~5 SMS-ów dziennie; każdą decyzję można nadpisać
+             ręcznie przy konkretnych zajęciach, widać też powód
+           • własny szablon wiadomości ze wstawkami {imie} {data}
+             {godzina} {instruktor}
+           • nawigacja po dniach i skok do "Jutro"
+           • w grafiku dnia zajęcia oznaczone 📩 (dostanie SMS) lub ✅ (wysłany)
+           • powiadomienie push o kolejce z własną godziną i wyborem, czy
+             dotyczy zajęć jutrzejszych czy dzisiejszych (funkcja
+             notifySmsQueue w functions-example.js)
 ===================================================================== */
-const APP_VERSION = '1.21.0';
+const APP_VERSION = '1.22.0';
 document.querySelectorAll('.app-version').forEach(el => el.textContent = 'v' + APP_VERSION);
 
 const LEVELS = [
@@ -1046,7 +1076,10 @@ let studentNotes = {};    // phone -> {notes, updatedByName, updatedAt}
 let studentSearchQuery = '';
 let absences = [];        // reported instructor unavailability (all-day or partial)
 let unsubAbsences = null;
-let settings = {basePrice:120, instructorRateDefault:60, lessonDuration:55, dayStart:9, dayEnd:16, smsWebhookUrl:'', breakBetweenLessons:5, lunchBreakEnabled:true, lunchBreakStart:'13:00', lunchBreakDuration:30, lunchBreakOverrides:{}, dailyBriefEnabled:true, dailyBriefTime:'18:00', dailyBriefWhen:'evening', paymentGraceMinutes:20, paymentAlertsEnabled:true};
+let settings = {basePrice:120, instructorRateDefault:60, lessonDuration:55, dayStart:9, dayEnd:16, smsWebhookUrl:'', breakBetweenLessons:5, lunchBreakEnabled:true, lunchBreakStart:'13:00', lunchBreakDuration:30, lunchBreakOverrides:{}, dailyBriefEnabled:true, dailyBriefTime:'18:00', dailyBriefWhen:'evening', paymentGraceMinutes:20, paymentAlertsEnabled:true,
+  smsPushEnabled:true, smsPushTime:'18:00', smsPushDay:'evening',
+  smsRuleFirstLesson:true, smsRuleBookedDaysAgo:2, smsRuleReturnAfterDays:7, smsRuleAlways:false,
+  smsTemplate:'Przypominamy o zajeciach narciarskich {data} o {godzina}, instruktor: {instruktor}. Szkolka Osmelakowa Dolina.'};
 let weather = null;        // {fetchedAt, hours:{"YYYY-MM-DDTHH": {t, code, wind, precip}}}
 let dayNotes = {};         // "YYYY-MM-DD" -> {entries:[{author, text, at}]}
 let unsubWeather = null, unsubDayNotes = null;
@@ -1205,6 +1238,67 @@ function outstandingByStudent(){
   return [...map.values()].sort((a,b)=>a.oldestMs-b.oldestMs); // najstarsze długi na górze
 }
 function overdueLessons(){ return lessons.filter(isOverdue); }
+
+/* =====================================================================
+   PRZYPOMNIENIA SMS
+   Wysyłamy tylko tam, gdzie SMS realnie coś zmienia — stały kursant, który
+   był wczoraj i przyjdzie jutro, przypomnienia nie potrzebuje. Reguły można
+   wyłączyć w Ustawieniach, a każdą decyzję nadpisać ręcznie przy zajęciach.
+===================================================================== */
+function lessonCreatedMs(l){
+  const c = l.createdAt;
+  if(!c) return null;
+  if(typeof c.toMillis === 'function') return c.toMillis();   // Firestore Timestamp
+  if(typeof c === 'number') return c;
+  if(c.seconds) return c.seconds*1000;
+  return null;
+}
+/* Zwraca {send:bool, reason:string} — powód pokazujemy operatorowi, żeby
+   wiedział, dlaczego dane zajęcia dostają albo nie dostają SMS-a. */
+function smsDecision(l){
+  if(l.smsOverride === 'skip')  return {send:false, reason:'wyłączone ręcznie'};
+  if(l.smsOverride === 'force') return {send:true,  reason:'włączone ręcznie'};
+  if(l.status === 'cancelled')  return {send:false, reason:'zajęcia odwołane'};
+  if(settings.smsRuleAlways)    return {send:true,  reason:'wysyłka do wszystkich'};
+
+  const key = studentKey(l.studentName, l.studentPhone);
+  const previous = lessons.filter(x=>studentKey(x.studentName,x.studentPhone)===key
+    && x.id!==l.id && x.date < l.date && x.status!=='cancelled');
+
+  if(settings.smsRuleFirstLesson && previous.length===0)
+    return {send:true, reason:'pierwsze zajęcia'};
+
+  const createdMs = lessonCreatedMs(l);
+  const daysAgo = createdMs ? Math.floor((Date.now()-createdMs)/86400000) : null;
+  const thr = settings.smsRuleBookedDaysAgo ?? 2;
+  if(thr>0 && daysAgo!==null && daysAgo >= thr)
+    return {send:true, reason:`zapisany ${daysAgo} dni temu`};
+
+  const gap = settings.smsRuleReturnAfterDays ?? 7;
+  if(gap>0 && previous.length>0){
+    const last = previous.map(x=>x.date).sort().pop();
+    const days = Math.round((new Date(l.date+'T12:00:00') - new Date(last+'T12:00:00'))/86400000);
+    if(days >= gap) return {send:true, reason:`przerwa ${days} dni`};
+  }
+  return {send:false, reason:'stały kursant, niedawno był'};
+}
+function smsMessageFor(l){
+  const tpl = settings.smsTemplate || 'Przypominamy o zajeciach {data} o {godzina}.';
+  return tpl
+    .replace(/{imie}/g, l.studentName)
+    .replace(/{data}/g, fmtDatePL(l.date))
+    .replace(/{godzina}/g, l.time)
+    .replace(/{instruktor}/g, l.instructorName);
+}
+function smsHref(l){
+  return `sms:${l.studentPhone}?body=${encodeURIComponent(smsMessageFor(l))}`;
+}
+/* Zajęcia z danego dnia, które wg reguł mają dostać SMS */
+function smsQueueFor(dateIso){
+  return lessons
+    .filter(l=>l.date===dateIso && l.status!=='cancelled' && smsDecision(l).send)
+    .sort((a,b)=>a.time.localeCompare(b.time));
+}
 function sumHours(list){ return list.reduce((s,l)=>s+lessonMinutes(l),0)/60; }
 function statusBadge(status){
   const map = {
@@ -1327,6 +1421,14 @@ window.saveSettings = async function(){
   const lunchBreakEnabled = document.getElementById('set-lunch-enabled').classList.contains('on');
   const lunchBreakStart = document.getElementById('set-lunch-start').value || '13:00';
   const lunchBreakDuration = Math.max(0, Number(document.getElementById('set-lunch-duration').value)||0);
+  const smsPushEnabled = document.getElementById('set-smspush-enabled').classList.contains('on');
+  const smsPushTime = document.getElementById('set-smspush-time').value || '18:00';
+  const smsPushDay = document.getElementById('set-smspush-day').value || 'evening';
+  const smsRuleAlways = document.getElementById('set-sms-always').classList.contains('on');
+  const smsRuleFirstLesson = document.getElementById('set-sms-first').classList.contains('on');
+  const smsRuleBookedDaysAgo = Math.max(0, Number(document.getElementById('set-sms-booked').value)||0);
+  const smsRuleReturnAfterDays = Math.max(0, Number(document.getElementById('set-sms-return').value)||0);
+  const smsTemplate = document.getElementById('set-sms-template').value.trim();
   const paymentGraceMinutes = Math.max(0, Number(document.getElementById('set-pay-grace').value)||0);
   const paymentAlertsEnabled = document.getElementById('set-pay-alerts').classList.contains('on');
   const dailyBriefEnabled = document.getElementById('set-brief-enabled').classList.contains('on');
@@ -1345,7 +1447,9 @@ window.saveSettings = async function(){
   }
   settings = {...settings, basePrice, lessonDuration, dayStart, dayEnd, smsWebhookUrl, instructorRateDefault,
     breakBetweenLessons, lunchBreakEnabled, lunchBreakStart, lunchBreakDuration, lunchBreakOverrides,
-    dailyBriefEnabled, dailyBriefTime, dailyBriefWhen, paymentGraceMinutes, paymentAlertsEnabled};
+    dailyBriefEnabled, dailyBriefTime, dailyBriefWhen, paymentGraceMinutes, paymentAlertsEnabled,
+    smsPushEnabled, smsPushTime, smsPushDay, smsRuleAlways, smsRuleFirstLesson,
+    smsRuleBookedDaysAgo, smsRuleReturnAfterDays, smsTemplate};
   await setDoc(doc(db,'settings','general'), settings, {merge:true});
   showToast('Ustawienia zapisane');
   renderPage();
@@ -2036,7 +2140,8 @@ function renderDayScheduleGrid(dateIso, onlyInstructorId){
         const canManage = currentUser.role==='operator' || currentUser.canManageAll || lesson.instructorId===currentUser.uid;
         html += `<td>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-            <span ${canManage?`onclick="openLessonEdit('${lesson.id}')" style="cursor:pointer;"`:''}><span class="dot" style="background:${cssColor(lv.key)}"></span> <b style="font-size:13px;">${esc(lesson.studentName)}</b>${lesson.lessonType==='group'?` 👥${lesson.groupSize||2}`:''}</span>
+            <span ${canManage?`onclick="openLessonEdit('${lesson.id}')" style="cursor:pointer;"`:''}><span class="dot" style="background:${cssColor(lv.key)}"></span> <b style="font-size:13px;">${esc(lesson.studentName)}</b>${lesson.lessonType==='group'?` 👥${lesson.groupSize||2}`:''}${
+  smsDecision(lesson).send ? `<span title="${lesson.reminderSent?'SMS wysłany':'Dostanie SMS: '+esc(smsDecision(lesson).reason)}" style="margin-left:4px;font-size:11px;">${lesson.reminderSent?'✅':'📩'}</span>` : ''}</span>
             ${canManage ? `<button class="pay-toggle ${lesson.paymentStatus==='paid'?'paid':''} ${isOverdue(lesson)?'overdue':''}" onclick="toggleLessonPayment('${lesson.id}')" title="${lesson.paymentStatus==='paid'?`Zapłacono${lesson.paymentMethod?' ('+(PAYMENT_METHODS[lesson.paymentMethod]||'')+')':''} — dotknij, aby cofnąć`:isOverdue(lesson)?`Zaległość od ${fmtOverdue(overdueMinutes(lesson))} — dotknij, aby rozliczyć`:'Do zapłaty — dotknij, aby oznaczyć jako zapłacone'}">${lesson.paymentStatus==='paid'?'✓':'zł'}</button>` : paymentBadge(lesson.paymentStatus)}
           </div>
         </td>`;
@@ -2921,63 +3026,111 @@ window.saveMyAvailability = async function(){
 };
 
 /* ============ REMINDERS PAGE (operator) — SMS approval flow ============ */
+let remDate = null;   // dzień, dla którego pokazujemy kolejkę SMS
+
 function renderRemindersPage(main){
-  const tmr = new Date(); tmr.setDate(tmr.getDate()+1);
-  const tmrIso = `${tmr.getFullYear()}-${pad(tmr.getMonth()+1)}-${pad(tmr.getDate())}`;
-  const tmrLessons = lessons.filter(l=>l.date===tmrIso && l.status!=='cancelled').sort((a,b)=>a.time.localeCompare(b.time));
+  if(!remDate){
+    const t = new Date(); t.setDate(t.getDate()+1);
+    remDate = `${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}`;
+  }
+  const dayAll = lessons.filter(l=>l.date===remDate && l.status!=='cancelled')
+    .sort((a,b)=>a.time.localeCompare(b.time));
+  const queue = dayAll.filter(l=>smsDecision(l).send);
+  const pending = queue.filter(l=>!l.reminderSent);
+  const sent = queue.filter(l=>l.reminderSent);
+  const skipped = dayAll.filter(l=>!smsDecision(l).send);
+  const dow = new Date(remDate+'T12:00:00').getDay();
+
   main.innerHTML = `
-    <div class="page-head"><div><div class="page-sub">Automatyczne przypomnienia SMS</div><h1>Przypomnienia</h1></div></div>
-    <div class="card">
-      <h3>Jutro (${fmtDatePL(tmrIso)}) — ${tmrLessons.length} zajęć</h3>
-      ${tmrLessons.length===0 ? `<div class="empty-state"><b>Brak zajęć jutro</b>Nie ma czego przypominać.</div>` : `
-      <div class="table-wrap"><table><thead><tr><th>Godz.</th><th>Uczeń</th><th>Telefon</th><th>Instruktor</th><th>Status</th></tr></thead><tbody>
-      ${tmrLessons.map(l=>`<tr><td><b>${l.time}</b></td><td>${esc(l.studentName)}</td><td>${esc(l.studentPhone)}</td><td>${esc(l.instructorName)}</td>
-      <td>${l.reminderSent ? '<span class="badge" style="background:#2FA84F22;color:#2FA84F;">Wysłano</span>' : '<span class="badge" style="background:#8FA4B822;color:#8FA4B8;">Oczekuje</span>'}</td></tr>`).join('')}
-      </tbody></table></div>
-      <button class="btn btn-gold" style="margin-top:16px;" onclick="approveReminders('${tmrIso}')">✓ Zatwierdź i wyślij SMS-y (${tmrLessons.filter(l=>!l.reminderSent).length})</button>
-      `}
-      ${!settings.smsWebhookUrl ? `<div class="field-error" style="text-align:left;margin-top:14px;">Brak skonfigurowanego adresu bramki SMS. Ustaw go w zakładce Ustawienia po podłączeniu dostawcy (np. Sendly/SMSAPI) przez Cloud Function — patrz plik functions-example.js.</div>` : ''}
+    <div class="page-head">
+      <div><div class="page-sub">${esc(WEEKDAY_LABELS[dow])}</div><h1>Przypomnienia</h1></div>
     </div>
+
+    <div class="card">
+      <div class="dayview-nav">
+        <button class="icon-btn dayview-arrow" onclick="remShift(-1)">‹</button>
+        <div class="dayview-date">
+          <b>${fmtDatePL(remDate)}</b>
+          <input type="date" value="${remDate}" onchange="remJump(this.value)">
+        </div>
+        <button class="icon-btn dayview-arrow" onclick="remShift(1)">›</button>
+        <button class="icon-btn" onclick="remJumpTomorrow()">Jutro</button>
+      </div>
+      <div class="stats-grid" style="margin:14px 0 0;">
+        <div class="stat c-lv2"><div class="num">${dayAll.length}</div><div class="lbl">Zajęć tego dnia</div></div>
+        <div class="stat ${pending.length>0?'c-lv5':''}"><div class="num">${pending.length}</div><div class="lbl">SMS do wysłania</div></div>
+        <div class="stat c-lv1"><div class="num">${sent.length}</div><div class="lbl">Już wysłane</div></div>
+        <div class="stat"><div class="num">${skipped.length}</div><div class="lbl">Pominięte regułami</div></div>
+      </div>
+    </div>
+
+    ${pending.length>0 ? `
+    <div class="card">
+      <h3>📩 Do wysłania (${pending.length})</h3>
+      <div style="color:var(--mist-dim);font-size:12.5px;margin-bottom:14px;line-height:1.5;">
+        Dotknij „Wyślij", otworzy się SMS-nik z gotowym numerem i treścią — potwierdzasz wysyłkę w telefonie
+        i wracasz tutaj. Pozycja odhaczy się sama.
+      </div>
+      <div class="sms-queue">
+        ${pending.map((l,idx)=>`
+          <div class="sms-item">
+            <div class="sms-num">${idx+1}</div>
+            <div class="sms-body">
+              <b>${esc(l.studentName)}</b> <span style="color:var(--mist-dim);">${esc(l.studentPhone)}</span>
+              <div class="sms-reason">${l.time} · ${esc(l.instructorName)} · ${esc(smsDecision(l).reason)}</div>
+              <div class="sms-preview">${esc(smsMessageFor(l))}</div>
+            </div>
+            <div class="sms-actions">
+              <a class="btn btn-primary" style="padding:9px 14px;font-size:13px;text-decoration:none;" href="${esc(smsHref(l))}" onclick="markSmsSent('${l.id}')">Wyślij</a>
+              <button class="icon-btn" onclick="markSmsSent('${l.id}')" title="Oznacz jako wysłane bez otwierania SMS-nika">✓</button>
+              <button class="icon-btn" onclick="setSmsOverride('${l.id}','skip')" title="Pomiń tego kursanta">✕</button>
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>` : `<div class="card"><div class="empty-state"><b>Nic do wysłania</b>${dayAll.length===0?'Brak zajęć tego dnia.':'Wszystkie przypomnienia na ten dzień są już wysłane albo pominięte regułami.'}</div></div>`}
+
+    ${sent.length>0 ? `<div class="card">
+      <h3>✓ Wysłane (${sent.length})</h3>
+      <div class="table-wrap"><table><thead><tr><th>Godz.</th><th>Kursant</th><th>Telefon</th><th></th></tr></thead><tbody>
+        ${sent.map(l=>`<tr><td><b>${l.time}</b></td><td>${esc(l.studentName)}</td><td>${esc(l.studentPhone)}</td>
+        <td><button class="icon-btn" onclick="unmarkSmsSent('${l.id}')">Cofnij</button></td></tr>`).join('')}
+      </tbody></table></div>
+    </div>` : ''}
+
+    ${skipped.length>0 ? `<div class="card">
+      <h3>Pominięte regułami (${skipped.length})</h3>
+      <div style="color:var(--mist-dim);font-size:12.5px;margin-bottom:12px;">Te osoby nie dostaną SMS-a. Możesz to zmienić pojedynczo.</div>
+      <div class="table-wrap"><table><thead><tr><th>Godz.</th><th>Kursant</th><th>Dlaczego pominięty</th><th></th></tr></thead><tbody>
+        ${skipped.map(l=>`<tr><td><b>${l.time}</b></td><td>${esc(l.studentName)}</td>
+        <td><span style="color:var(--mist-dim);font-size:12.5px;">${esc(smsDecision(l).reason)}</span></td>
+        <td><button class="icon-btn" onclick="setSmsOverride('${l.id}','force')">📩 Wyślij mimo to</button></td></tr>`).join('')}
+      </tbody></table></div>
+    </div>` : ''}
   `;
 }
-window.approveReminders = async function(dateIso){
-  const toSend = lessons.filter(l=>l.date===dateIso && !l.reminderSent && l.status!=='cancelled');
-  if(toSend.length===0){ showToast('Brak przypomnień do wysłania'); return; }
-  if(!settings.smsWebhookUrl){
-    showToast('Skonfiguruj najpierw bramkę SMS w Ustawieniach');
-    return;
-  }
-  try{
-    const res = await fetch(settings.smsWebhookUrl, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({lessons: toSend.map(l=>({id:l.id, phone:l.studentPhone, name:l.studentName, time:l.time, date:l.date, instructor:l.instructorName}))})
-    });
-    if(!res.ok){
-      showToast(`Bramka SMS zwróciła błąd (${res.status}) — nic nie oznaczono jako wysłane`);
-      return;
-    }
-    // Jeśli bramka zwraca wynik per zajęcia, oznaczamy tylko te faktycznie wysłane.
-    let okIds = toSend.map(l=>l.id);
-    try{
-      const data = await res.json();
-      if(Array.isArray(data?.results)){
-        okIds = data.results.filter(r=>r.ok).map(r=>r.id);
-      }
-    }catch(_){ /* bramka nie zwróciła JSON-a — zakładamy, że całość poszła */ }
 
-    if(okIds.length===0){
-      showToast('Bramka SMS nie wysłała żadnej wiadomości');
-      return;
-    }
-    await Promise.all(okIds.map(id=>updateDoc(doc(db,'lessons',id), {reminderSent:true})));
-    showToast(okIds.length===toSend.length
-      ? `Wysłano ${okIds.length} SMS-ów`
-      : `Wysłano ${okIds.length} z ${toSend.length} — reszta nieudana`);
-  }catch(e){
-    showToast('Błąd wysyłki: sprawdź adres bramki SMS');
-  }
+window.remShift = function(d){ remDate = shiftDate(remDate, d); renderPage(); };
+window.remJump = function(iso){ if(iso){ remDate = iso; renderPage(); } };
+window.remJumpTomorrow = function(){
+  const t = new Date(); t.setDate(t.getDate()+1);
+  remDate = `${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}`;
+  renderPage();
 };
+window.markSmsSent = async function(id){
+  // odhaczamy z małym opóźnieniem, żeby zdążył otworzyć się SMS-nik
+  setTimeout(async ()=>{
+    try{ await updateDoc(doc(db,'lessons',id), {reminderSent:true, reminderSentAt: Date.now()}); }
+    catch(e){ showToast('Nie udało się oznaczyć jako wysłane'); }
+  }, 400);
+};
+window.unmarkSmsSent = async function(id){
+  await updateDoc(doc(db,'lessons',id), {reminderSent:false});
+};
+window.setSmsOverride = async function(id, mode){
+  await updateDoc(doc(db,'lessons',id), {smsOverride: mode});
+  showToast(mode==='skip' ? 'Pominięto — bez SMS-a' : 'Dodano do kolejki SMS');
+};
+
 
 /* ============ SETTINGS PAGE (operator) ============ */
 function renderLunchOverrideRow(dow, label){
@@ -3085,6 +3238,58 @@ function renderSettingsPage(main){
     </div>
 
     ${renderPushCard()}
+
+    <div class="card">
+      <h3>📩 Przypomnienia SMS</h3>
+
+      <div class="opt-label">Kiedy przypomnieć Ci o wysyłce</div>
+      <div class="switch-row" style="max-width:380px;">
+        <div>
+          <b style="font-size:14.5px;">Powiadomienie push o SMS-ach</b><br>
+          <span style="font-size:12px;color:var(--mist-dim);">„Jutro 5 przypomnień do wysłania"</span>
+        </div>
+        <div class="switch ${settings.smsPushEnabled!==false?'on':''}" id="set-smspush-enabled" onclick="this.classList.toggle('on')"><div class="knob"></div></div>
+      </div>
+      <div class="grid grid-2" style="max-width:420px;margin-top:10px;">
+        <div class="field"><label>Dotyczy zajęć</label>
+          <select id="set-smspush-day">
+            <option value="evening" ${settings.smsPushDay!=='morning'?'selected':''}>Jutrzejszych (wysyłasz wieczorem)</option>
+            <option value="morning" ${settings.smsPushDay==='morning'?'selected':''}>Dzisiejszych (wysyłasz rano)</option>
+          </select>
+        </div>
+        <div class="field"><label>Godzina</label><input type="time" id="set-smspush-time" value="${settings.smsPushTime||'18:00'}"></div>
+      </div>
+
+      <div class="opt-label" style="margin-top:16px;">Komu wysyłać przypomnienia</div>
+      <div class="switch-row" style="max-width:420px;">
+        <div><b style="font-size:14.5px;">Wszystkim, zawsze</b><br>
+          <span style="font-size:12px;color:var(--mist-dim);">Wyłącza reguły poniżej — więcej SMS-ów, więcej pracy</span></div>
+        <div class="switch ${settings.smsRuleAlways?'on':''}" id="set-sms-always" onclick="this.classList.toggle('on')"><div class="knob"></div></div>
+      </div>
+      <div class="switch-row" style="max-width:420px;">
+        <div><b style="font-size:14.5px;">Pierwsze zajęcia kursanta</b><br>
+          <span style="font-size:12px;color:var(--mist-dim);">Nie zna miejsca ani godziny — tu SMS ma największy sens</span></div>
+        <div class="switch ${settings.smsRuleFirstLesson!==false?'on':''}" id="set-sms-first" onclick="this.classList.toggle('on')"><div class="knob"></div></div>
+      </div>
+      <div class="grid grid-2" style="max-width:420px;margin-top:6px;">
+        <div class="field"><label>Zapisany co najmniej X dni temu</label>
+          <input type="number" min="0" max="30" id="set-sms-booked" value="${settings.smsRuleBookedDaysAgo ?? 2}"></div>
+        <div class="field"><label>Wraca po przerwie X dni</label>
+          <input type="number" min="0" max="90" id="set-sms-return" value="${settings.smsRuleReturnAfterDays ?? 7}"></div>
+      </div>
+      <div style="color:var(--mist-dim);font-size:12px;margin-top:-4px;margin-bottom:14px;">0 = reguła wyłączona. Stały kursant, który był niedawno, SMS-a nie dostanie.</div>
+
+      <div class="opt-label">Treść wiadomości</div>
+      <div class="field">
+        <textarea id="set-sms-template" rows="3">${esc(settings.smsTemplate||'')}</textarea>
+      </div>
+      <div style="color:var(--mist-dim);font-size:12px;margin-top:-6px;margin-bottom:6px;line-height:1.6;">
+        Wstawki: <b class="app-mono">{imie}</b> <b class="app-mono">{data}</b> <b class="app-mono">{godzina}</b> <b class="app-mono">{instruktor}</b>.
+        Bez polskich znaków wiadomość mieści się w jednym SMS-ie (160 znaków zamiast 70).
+      </div>
+
+      <button class="btn btn-primary" style="margin-top:10px;" onclick="saveSettings()">Zapisz ustawienia</button>
+    </div>
 
     <div class="card">
       <h3>💰 Płatności</h3>
