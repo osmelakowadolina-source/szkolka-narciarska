@@ -1082,6 +1082,10 @@ if ('serviceWorker' in navigator) {
            • powiadomienie push o kolejce z własną godziną i wyborem, czy
              dotyczy zajęć jutrzejszych czy dzisiejszych (funkcja
              notifySmsQueue w functions-example.js)
+   1.24.0 — zapis na kilka dni z RÓŻNYMI godzinami: w kroku "Godzina zajęć"
+           przełącznik "Ta sama godzina każdego dnia" / "Różne godziny w różne
+           dni". W drugim trybie ten sam instruktor, a dla każdego dnia osobna
+           siatka jego wolnych godzin (z opcją własnej godziny)
    1.23.1 — w krokach Imię / Telefon / Poziom widać wybrany termin: datę,
            godzinę i instruktora (z boku na szerokim ekranie, nad polem na telefonie)
    1.23.0 — poprawki po audycie:
@@ -1101,7 +1105,7 @@ if ('serviceWorker' in navigator) {
            • przerysowanie z bazy nie kasuje wpisywanej notatki/ustawień
            • większe cele dotykowe, obsługa klawiatury, zoom niezablokowany
 ===================================================================== */
-const APP_VERSION = '1.23.1';
+const APP_VERSION = '1.24.0';
 document.querySelectorAll('.app-version').forEach(el => el.textContent = 'v' + APP_VERSION);
 
 const LEVELS = [
@@ -3624,7 +3628,7 @@ window.openWizard = function(){
     dates:[],            // można zapisać ucznia na kilka dni za jednym razem
     instructorId: currentUser.role==='instructor' ? currentUser.uid : null,
     instructorName: currentUser.role==='instructor' ? currentUser.name : null,
-    time:null, name:'', countryCode:'+48', phone:'', level:null,
+    time:null, perDay:false, timesByDate:{}, name:'', countryCode:'+48', phone:'', level:null,
     lessonType:'individual', groupSize:2, paymentStatus:'unpaid', notes:'',
     price: settings.basePrice, priceTouched:false
   };
@@ -3639,7 +3643,7 @@ window.openWizard = function(){
 window.openWizardAt = function(dateIso, time, uid, name){
   openWizard();
   wData.dates = [dateIso];
-  wData.time = time;
+  wData.time = time; wData.perDay = false; wData.timesByDate = {};
   wData.instructorId = uid;
   wData.instructorName = name;
   const d = new Date(dateIso+'T12:00:00'); wCalMonth = d.getMonth(); wCalYear = d.getFullYear();
@@ -3675,7 +3679,7 @@ window.openWizardForStudent = function(name, phone){
     repeatFor: {name:last.studentName, phone:last.studentPhone},
     dates:[],
     instructorId, instructorName,
-    time:null,
+    time:null, perDay:false, timesByDate:{},
     name: last.studentName,
     countryCode,
     phone: digits,
@@ -3718,14 +3722,24 @@ function actionsHtml(nextEnabled, isLast){
   return `<div class="wizard-actions">${backBtn}${nextBtn}</div>`;
 }
 
+/* Tryb "różne godziny w różne dni" działa tylko przy więcej niż jednym dniu */
+function isPerDay(){ return !!wData.perDay && (wData.dates||[]).length > 1; }
+function timeFor(date){ return isPerDay() ? (wData.timesByDate[date] || null) : wData.time; }
+function allTimesChosen(){
+  const dates = wData.dates || [];
+  return isPerDay() ? dates.length>0 && dates.every(d=>!!wData.timesByDate[d]) : !!wData.time;
+}
+
 /* Termin wybrany w poprzednich krokach — widoczny przy wpisywaniu imienia i telefonu */
 function wizardInfoHtml(){
   const dates = [...(wData.dates||[])].sort();
   if(dates.length===0 && !wData.time && !wData.instructorName) return '';
   const instr = instructors.find(i=>i.uid===wData.instructorId);
   return `<div class="wizard-info" aria-label="Wybrany termin">
-    <div class="wi-row"><span class="wi-k">${dates.length>1?`Dni (${dates.length})`:'Data'}</span><span class="wi-v">${dates.map(fmtDatePL).join('<br>')}</span></div>
-    <div class="wi-row"><span class="wi-k">Godzina</span><span class="wi-v">${esc(wData.time||'—')}</span></div>
+    ${isPerDay()
+      ? `<div class="wi-row"><span class="wi-k">Dni i godziny</span><span class="wi-v">${dates.map(d=>`${fmtDatePL(d)} · ${esc(timeFor(d)||'—')}`).join('<br>')}</span></div>`
+      : `<div class="wi-row"><span class="wi-k">${dates.length>1?`Dni (${dates.length})`:'Data'}</span><span class="wi-v">${dates.map(fmtDatePL).join('<br>')}</span></div>
+    <div class="wi-row"><span class="wi-k">Godzina</span><span class="wi-v">${esc(wData.time||'—')}</span></div>`}
     <div class="wi-row"><span class="wi-k">Instruktor</span><span class="wi-v">${esc(wData.instructorName||'—')}${instr?` ${disciplineIcons(instr)}`:''}</span></div>
   </div>`;
 }
@@ -3759,14 +3773,21 @@ function renderWizardStep(){
   if(step==='time'){
     const dates = [...wData.dates].sort();
     const needInstructorPick = currentUser.role==='operator';
-    const order = wData.pickOrder || 'instructor';   // 'instructor' | 'time'
     const multi = dates.length > 1;
+    const perDay = isPerDay();
+    const order = perDay ? 'instructor' : (wData.pickOrder || 'instructor');   // 'instructor' | 'time'
 
     const selectedInstructor = instructors.find(i=>i.uid===wData.instructorId)
       || (currentUser.role==='instructor' ? currentUser : null);
 
     // instruktor sam sobie zapisuje — przełącznik kolejności nie ma sensu
-    const orderToggle = needInstructorPick ? `
+    // przy kilku dniach: ta sama godzina (domyślnie) albo osobna godzina dla każdego dnia
+    const perDayToggle = multi ? `
+      <div class="order-toggle" role="group" aria-label="Godziny zajęć">
+        <button class="${!perDay?'active':''}" onclick="setPerDay(false)">Ta sama godzina każdego dnia</button>
+        <button class="${perDay?'active':''}" onclick="setPerDay(true)">Różne godziny w różne dni</button>
+      </div>` : '';
+    const orderToggle = (needInstructorPick && !perDay) ? `
       <div class="order-toggle">
         <button class="${order==='instructor'?'active':''}" onclick="setPickOrder('instructor')">Najpierw instruktor</button>
         <button class="${order==='time'?'active':''}" onclick="setPickOrder('time')">Najpierw godzina</button>
@@ -3782,7 +3803,7 @@ function renderWizardStep(){
     const lunchFirst = getLunchBreakForDate(dates[0]);
     if(lunchFirst && !multi) hintParts.push(`Przerwa obiadowa: ${fromMinutes(lunchFirst.start)}–${fromMinutes(lunchFirst.end)}`);
     if(order==='instructor' && selectedInstructor?.maxHoursPerDay) hintParts.push(`Limit dzienny instruktora: ${selectedInstructor.maxHoursPerDay} h`);
-    if(multi) hintParts.push('Liczba pod godziną = w ilu z wybranych dni termin jest wolny');
+    if(multi && !perDay) hintParts.push('Liczba pod godziną = w ilu z wybranych dni termin jest wolny');
 
     /* ---------- widok siatki godzin ---------- */
     const slotGridHtml = (list, showFreeInstructors)=>`
@@ -3819,8 +3840,38 @@ function renderWizardStep(){
         return `<div class="instr-chip ${cls} ${wData.instructorId===i.uid?'selected':''}" onclick="pickInstructor('${escAttr(i.uid)}','${escAttr(i.name)}')">${mark}${esc(i.name)} <span title="${esc(disciplineLabel(i))}">${disciplineIcons(i)}</span></div>`;
       }).join('') || '<div style="color:var(--mist-dim);font-size:13px;">Brak instruktorów — dodaj ich w panelu Instruktorzy.</div>'}</div>`;
 
+    /* ---------- osobna godzina dla każdego dnia (jeden instruktor) ---------- */
+    const perDayHtml = ()=>{
+      if(!wData.instructorId) return `<div style="margin-top:6px;font-size:13px;color:var(--mist-dim);">Wybierz instruktora, a potem godzinę dla każdego dnia.</div>`;
+      return dates.map(d=>{
+        const dow = new Date(d+'T12:00:00').getDay();
+        const list = slotAvailability(wData.instructorId, [d]);
+        const chosen = wData.timesByDate[d];
+        const custom = chosen && !list.some(x=>x.time===chosen) ? chosen : '';
+        return `<div class="optional-block" style="margin-top:14px;padding-top:12px;">
+          <div class="opt-label" style="display:flex;justify-content:space-between;">
+            <span>${esc(DOW[dow])} ${fmtDatePL(d)}</span>
+            <span style="color:${chosen?'var(--ok)':'var(--warn)'};">${chosen ? '✓ '+esc(chosen) : 'wybierz godzinę'}</span>
+          </div>
+          <div class="slot-grid">
+            ${list.map(x=>{
+              const none = x.freeDates.length===0;
+              const title = x.blockedDates.map(b=>b.reason).join(', ');
+              return `<div class="slot ${none?'taken':''} ${chosen===x.time?'selected':''}" onclick="pickTimeFor('${d}','${x.time}')" title="${esc(title)}">${x.time}</div>`;
+            }).join('')}
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;margin-top:8px;">
+            <span style="font-size:12px;color:var(--mist-dim);flex-shrink:0;">Inna godzina:</span>
+            <input type="time" style="flex:1;padding:8px 10px;background:var(--navy-2);border:1.5px solid var(--navy-3);border-radius:9px;color:var(--snow);font-size:14px;" value="${esc(custom)}" oninput="onCustomTimeForDay('${d}', this)">
+          </div>
+        </div>`;
+      }).join('');
+    };
+
     let mainHtml;
-    if(order === 'time'){
+    if(perDay){
+      mainHtml = `${needInstructorPick ? instrChipsHtml(false) : ''}${perDayHtml()}`;
+    }else if(order === 'time'){
       // NAJPIERW GODZINA: siatka liczy, ilu instruktorów jest wolnych o danej porze
       const merged = slotAvailabilityAnyInstructor(dates);
       mainHtml = `
@@ -3841,19 +3892,20 @@ function renderWizardStep(){
     body.innerHTML = `<div class="wizard-panel">
       <h2>Godzina zajęć</h2>
       <div class="wizard-hint">${esc(headerDates)}</div>
+      ${perDayToggle}
       ${orderToggle}
       ${mainHtml}
       ${hintParts.length ? `<div style="margin-top:10px;font-size:12.5px;color:var(--mist-dim);">${hintParts.join(' · ')}</div>` : ''}
 
-      <div class="optional-block">
+      ${perDay ? '' : `<div class="optional-block">
         <div class="opt-label">Inna godzina (sytuacja nadzwyczajna)</div>
         <div style="display:flex;gap:10px;align-items:center;">
           <input type="time" id="w-custom-time" style="flex:1;padding:12px 14px;background:var(--navy-2);border:1.5px solid var(--navy-3);border-radius:9px;color:var(--snow);font-size:15px;" value="${wData.time&&!slots.some(s=>s.time===wData.time)?wData.time:''}" oninput="onCustomTimeInput(this)">
         </div>
         <div style="color:var(--mist-dim);font-size:12px;margin-top:6px;">Pomija siatkę godzin powyżej — użyj tylko w wyjątkowych przypadkach.</div>
-      </div>
+      </div>`}
 
-      ${actionsHtml(!!wData.time && !!wData.instructorId, false)}
+      ${actionsHtml(allTimesChosen() && !!wData.instructorId, false)}
     </div>`;
     return;
   }
@@ -3916,7 +3968,9 @@ function renderWizardStep(){
       <div class="card" style="margin:0;">
         <div class="summary-list">
           <div class="summary-row"><span class="k">${wData.dates.length>1?`Dni (${wData.dates.length})`:'Data'}</span><span class="v">${[...wData.dates].sort().map(fmtDatePL).join('<br>')}</span></div>
-          <div class="summary-row"><span class="k">Godzina</span><span class="v">${wData.time}${wData.dates.length>1?' (każdego dnia)':''}</span></div>
+          ${isPerDay()
+            ? `<div class="summary-row"><span class="k">Godziny</span><span class="v">${[...wData.dates].sort().map(d=>`${fmtDatePL(d)} · ${esc(timeFor(d))}`).join('<br>')}</span></div>`
+            : `<div class="summary-row"><span class="k">Godzina</span><span class="v">${esc(wData.time)}${wData.dates.length>1?' (każdego dnia)':''}</span></div>`}
           <div class="summary-row"><span class="k">Instruktor</span><span class="v">${esc(wData.instructorName)}</span></div>
           <div class="summary-row"><span class="k">Uczeń</span><span class="v">${esc(wData.name)}</span></div>
           <div class="summary-row"><span class="k">Telefon</span><span class="v">${esc(wData.countryCode)} ${esc(wData.phone)}</span></div>
@@ -3998,19 +4052,38 @@ window.wCalNav = function(dir){
    inline HTML attributes cannot see module-scope variables/functions --- */
 window.pickDate = function(iso){
   const i = wData.dates.indexOf(iso);
-  if(i>=0) wData.dates.splice(i,1); else wData.dates.push(iso);
-  wData.time = null; // dostępne godziny zależą od wybranych dni
+  if(i>=0){ wData.dates.splice(i,1); delete wData.timesByDate[iso]; }
+  else wData.dates.push(iso);
+  // godzina wspólna zależy od zestawu dni; godziny ustawione osobno dla dni zostają
+  wData.time = null;
   renderWizardStep();
 };
-window.clearWizardDates = function(){ wData.dates = []; wData.time = null; renderWizardStep(); };
+window.clearWizardDates = function(){ wData.dates = []; wData.time = null; wData.timesByDate = {}; renderWizardStep(); };
 window.pickInstructor = function(uid, name){
   wData.instructorId = uid; wData.instructorName = name;
   // w trybie "najpierw godzina" wybrana pora zostaje; w trybie "najpierw
   // instruktor" czyścimy godzinę, bo dostępność zależy od instruktora
   if((wData.pickOrder||'instructor') !== 'time') wData.time = null;
+  wData.timesByDate = {}; // dostępność godzin zależy od instruktora
   renderWizardStep();
 };
 window.pickTime = function(t){ wData.time = t; renderWizardStep(); };
+window.setPerDay = function(on){
+  wData.perDay = on;
+  if(on){ wData.pickOrder = 'instructor'; wData.time = null; }
+  else wData.timesByDate = {};
+  renderWizardStep();
+};
+window.pickTimeFor = function(date, t){
+  if(wData.timesByDate[date]===t) delete wData.timesByDate[date]; // drugie dotknięcie odznacza
+  else wData.timesByDate[date] = t;
+  renderWizardStep();
+};
+window.onCustomTimeForDay = function(date, el){
+  if(el.value) wData.timesByDate[date] = el.value; else delete wData.timesByDate[date];
+  const btn = document.getElementById('wizard-next-btn');
+  if(btn) btn.disabled = !(allTimesChosen() && wData.instructorId);
+};
 window.onCustomTimeInput = function(el){
   wData.time = el.value || null;
   const btn = document.getElementById('wizard-next-btn');
@@ -4158,9 +4231,9 @@ window.submitWizard = async function(){
   // zgłosić nieobecność). Przy zapisie na kilka dni sprawdzamy każdy z nich.
   const clashes = [], absentDays = [];
   dates.forEach(d=>{
-    const c = overlappingLesson(lessons.filter(l=>l.date===d), wData.instructorId, wData.time);
+    const c = overlappingLesson(lessons.filter(l=>l.date===d), wData.instructorId, timeFor(d));
     if(c) clashes.push({date:d, name:c.studentName});
-    else if(absenceBlocksMinutes(wData.instructorId, d, toMinutes(wData.time))) absentDays.push(d);
+    else if(absenceBlocksMinutes(wData.instructorId, d, toMinutes(timeFor(d)))) absentDays.push(d);
   });
 
   if(clashes.length === dates.length){
@@ -4170,7 +4243,7 @@ window.submitWizard = async function(){
   let toBook = dates.filter(d=>!clashes.some(c=>c.date===d));
   if(clashes.length > 0){
     const ok = confirm(
-      `W ${clashes.length} z ${dates.length} dni ten termin jest już zajęty:\n` +
+      `W ${clashes.length} z ${dates.length} dni ${isPerDay()?'wybrana godzina':'ten termin'} jest już zajęta/y:\n` +
       clashes.map(c=>`• ${fmtDatePL(c.date)} — ${c.name}`).join('\n') +
       `\n\nZapisać ucznia na pozostałe ${toBook.length} dni?`);
     if(!ok) return;
@@ -4188,7 +4261,6 @@ window.submitWizard = async function(){
     const instructor = instructors.find(i=>i.uid===wData.instructorId) || (currentUser.role==='instructor' ? currentUser : null);
     const instructorPay = instructor ? (instructor.pricePerLesson ?? settings.instructorRateDefault) : settings.instructorRateDefault;
     const base = {
-      time: wData.time,
       durationMinutes: settings.lessonDuration,
       instructorId: wData.instructorId,
       instructorName: wData.instructorName,
@@ -4207,7 +4279,7 @@ window.submitWizard = async function(){
       createdAt: serverTimestamp()
     };
     // każdy dzień to osobne zajęcia — można je potem edytować niezależnie
-    const results = await Promise.allSettled(toBook.map(date => createLessonAtomic({...base, date})));
+    const results = await Promise.allSettled(toBook.map(date => createLessonAtomic({...base, date, time: timeFor(date)})));
     const okDates = toBook.filter((d,i)=>results[i].status==='fulfilled');
     if(okDates.length===0){
       const why = results[0].reason;
