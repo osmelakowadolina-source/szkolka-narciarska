@@ -506,7 +506,15 @@ tbody tr:hover{background:rgba(255,255,255,0.035);}
 @media(min-width:640px){.lift-label{display:block;}}
 
 .wizard-body{flex:1;overflow-y:auto;display:flex;flex-direction:column;align-items:center;padding:20px 20px 40px;}
-.wizard-panel{width:100%;max-width:480px;}
+.wizard-panel{width:100%;max-width:480px;position:relative;}
+/* podsumowanie wybranego terminu przy krokach z danymi ucznia */
+.wizard-info{background:var(--navy-2);border:1px solid var(--navy-3);border-left:3px solid var(--lv5);border-radius:12px;padding:12px 14px;margin-bottom:18px;font-size:13.5px;}
+.wizard-info .wi-row{display:flex;gap:10px;justify-content:space-between;padding:3px 0;}
+.wizard-info .wi-k{color:var(--mist-dim);font-size:11.5px;text-transform:uppercase;letter-spacing:0.06em;font-weight:700;flex-shrink:0;padding-top:2px;}
+.wizard-info .wi-v{font-weight:700;text-align:right;}
+@media(min-width:1000px){
+  .wizard-info{position:absolute;left:calc(100% + 24px);top:0;width:230px;margin-bottom:0;}
+}
 .wizard-panel h2{font-size:30px;text-align:center;margin-bottom:6px;}
 .wizard-hint{text-align:center;color:var(--mist-dim);font-size:13.5px;margin-bottom:22px;}
 
@@ -1074,6 +1082,8 @@ if ('serviceWorker' in navigator) {
            • powiadomienie push o kolejce z własną godziną i wyborem, czy
              dotyczy zajęć jutrzejszych czy dzisiejszych (funkcja
              notifySmsQueue w functions-example.js)
+   1.23.1 — w krokach Imię / Telefon / Poziom widać wybrany termin: datę,
+           godzinę i instruktora (z boku na szerokim ekranie, nad polem na telefonie)
    1.23.0 — poprawki po audycie:
            • bezpieczeństwo: naprawiony stored XSS (escAttr nie escapował "&"),
              identyfikatory z bazy w onclick też escapowane, hasła z crypto
@@ -1091,7 +1101,7 @@ if ('serviceWorker' in navigator) {
            • przerysowanie z bazy nie kasuje wpisywanej notatki/ustawień
            • większe cele dotykowe, obsługa klawiatury, zoom niezablokowany
 ===================================================================== */
-const APP_VERSION = '1.23.0';
+const APP_VERSION = '1.23.1';
 document.querySelectorAll('.app-version').forEach(el => el.textContent = 'v' + APP_VERSION);
 
 const LEVELS = [
@@ -3708,6 +3718,18 @@ function actionsHtml(nextEnabled, isLast){
   return `<div class="wizard-actions">${backBtn}${nextBtn}</div>`;
 }
 
+/* Termin wybrany w poprzednich krokach — widoczny przy wpisywaniu imienia i telefonu */
+function wizardInfoHtml(){
+  const dates = [...(wData.dates||[])].sort();
+  if(dates.length===0 && !wData.time && !wData.instructorName) return '';
+  const instr = instructors.find(i=>i.uid===wData.instructorId);
+  return `<div class="wizard-info" aria-label="Wybrany termin">
+    <div class="wi-row"><span class="wi-k">${dates.length>1?`Dni (${dates.length})`:'Data'}</span><span class="wi-v">${dates.map(fmtDatePL).join('<br>')}</span></div>
+    <div class="wi-row"><span class="wi-k">Godzina</span><span class="wi-v">${esc(wData.time||'—')}</span></div>
+    <div class="wi-row"><span class="wi-k">Instruktor</span><span class="wi-v">${esc(wData.instructorName||'—')}${instr?` ${disciplineIcons(instr)}`:''}</span></div>
+  </div>`;
+}
+
 window.wizardStepBack = function(){ wStep--; renderLiftTrack(); renderWizardStep(); };
 window.wizardStepNext = function(){ wStep++; renderLiftTrack(); renderWizardStep(); };
 
@@ -3838,6 +3860,7 @@ function renderWizardStep(){
 
   if(step==='name'){
     body.innerHTML = `<div class="wizard-panel">
+      ${wizardInfoHtml()}
       <h2>Imię ucznia</h2>
       <div class="wizard-hint">Jak nazywa się kursant?</div>
       <input class="big-input" id="w-name" placeholder="Imię i nazwisko" value="${esc(wData.name)}" autocomplete="off" oninput="onNameFieldInput(this)">
@@ -3850,6 +3873,7 @@ function renderWizardStep(){
   if(step==='phone'){
     const cc = COUNTRY_CODES.find(c=>c.code===wData.countryCode);
     body.innerHTML = `<div class="wizard-panel">
+      ${wizardInfoHtml()}
       <h2>Telefon kontaktowy</h2>
       <div class="wizard-hint">Numer do wysyłki przypomnień SMS</div>
       <div class="phone-row">
@@ -3867,6 +3891,7 @@ function renderWizardStep(){
 
   if(step==='level'){
     body.innerHTML = `<div class="wizard-panel">
+      ${wizardInfoHtml()}
       <h2>Poziom zaawansowania</h2>
       <div class="wizard-hint">Jak radzi sobie kursant na nartach?</div>
       <div class="level-list">
