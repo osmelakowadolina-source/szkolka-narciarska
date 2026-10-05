@@ -1,0 +1,81 @@
+rules_version = '2';
+// Reguły Szkółki — rozwinięcie Twoich obecnych reguł. NIE były uruchamiane na Twojej bazie:
+// wklej w konsoli (Firestore → Reguły), użyj "Plac zabaw" i sprawdź każdą rolę
+// (operator, instruktor, instruktor z canManageAll) przed kliknięciem "Opublikuj".
+// Cloud Functions używają Admin SDK i reguły ich nie dotyczą.
+//
+// Co się zmienia względem Twoich reguł:
+//  1. users: instruktor może zapisać też fcmTokens — bez tego włączenie powiadomień
+//     push na jego telefonie kończyło się błędem uprawnień (Twoje hasOnly() go nie miało).
+//  2. Dostęp ma tylko ten, kto ma profil w users/ (isStaff). Konto, któremu usunięto profil,
+//     ale które wciąż istnieje w Authentication, traci dostęp do wszystkich danych.
+//  3. lessons: instruktor bez canManageAll tworzy zajęcia tylko dla siebie i nie zmienia
+//     stawki (instructorPay); przy zmianie nie może przenieść zajęć na innego instruktora.
+//  4. Reszta kolekcji bez zmian poza użyciem isStaff zamiast samego logowania.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn()  { return request.auth != null; }
+    function me()        { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    // "personel" = ma profil w users/. Usunięcie profilu natychmiast odcina dostęp,
+    // nawet jeśli konto logowania (Auth) nadal istnieje.
+    function isStaff()   { return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function isOperator(){ return isStaff() && me().role == 'operator'; }
+    function canManage() { return isOperator() || (isStaff() && me().get('canManageAll', false) == true); }
+    function isOwnerOf(data) { return data.instructorId == request.auth.uid; }
+
+    // Pola, które instruktor może zmieniać we własnym profilu ("Moje godziny", push).
+    function selfEditOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['maxHoursPerDay','breakEnabled','breakAfterLessons','breakDuration','fcmTokens']);
+    }
+
+    match /users/{uid} {
+      allow read:   if isStaff() || (signedIn() && request.auth.uid == uid); // własny profil przy logowaniu
+      allow create, delete: if isOperator();
+      // operator edytuje wszystko; instruktor tylko wybrane pola SWOJEGO profilu (nie role, nie canManageAll)
+      allow update: if isOperator() || (signedIn() && request.auth.uid == uid && selfEditOnly());
+    }
+
+    match /lessons/{id} {
+      allow read:   if isStaff();
+      allow create: if isOperator() || canManage()
+                    || (isStaff() && isOwnerOf(request.resource.data) && request.resource.data.createdBy == request.auth.uid);
+      // nie-operator nie zmienia wypłaty instruktora; instruktor bez canManageAll nie przenosi zajęć na kogoś innego
+      allow update: if isOperator()
+                    || (isStaff() && request.resource.data.get('instructorPay', null) == resource.data.get('instructorPay', null)
+                        && (canManage() || (isOwnerOf(resource.data) && isOwnerOf(request.resource.data))));
+      allow delete: if isOperator() || canManage() || (isStaff() && isOwnerOf(resource.data));
+    }
+
+    match /students/{id} {
+      allow read, write: if isStaff();
+    }
+
+    match /absences/{id} {
+      allow read:   if isStaff();
+      allow create: if isOperator() || (isStaff() && isOwnerOf(request.resource.data));
+      allow delete: if isOperator() || (isStaff() && isOwnerOf(resource.data));
+      allow update: if false;
+    }
+
+    match /dayNotes/{date} {
+      allow read, write: if isStaff();
+    }
+
+    match /weather/{id} {
+      allow read:  if isStaff();
+      allow write: if isStaff();   // pobiera dowolne urządzenie; to dane nieszkodliwe
+    }
+
+    match /settings/{id} {
+      allow read:  if isStaff();
+      allow write: if isOperator();
+    }
+
+    // briefLog, smsQueueLog itp. — tylko Cloud Functions (Admin SDK)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -2,7 +2,7 @@
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#0B1F33">
 <title>Szkółka Narciarska — Panel</title>
 <link rel="manifest" href="manifest.json">
@@ -447,6 +447,20 @@ tbody tr:hover{background:rgba(255,255,255,0.035);}
 .pay-toggle.paid{background:rgba(47,168,79,0.18);border-color:var(--ok);color:var(--ok);}
 .pay-toggle:not(.paid):hover{border-color:var(--warn);color:var(--warn);}
 
+/* cele dotykowe — przy rękawicach i na mrozie 22 px to za mało */
+@media (pointer:coarse){
+  .pay-toggle{min-width:44px;min-height:44px;font-size:14px;padding:6px 10px;}
+  .icon-btn{min-height:40px;padding:8px 12px;}
+  .note-del{min-width:40px;min-height:40px;font-size:16px;}
+  .choice-chip,.instr-chip{min-height:44px;display:flex;align-items:center;justify-content:center;}
+}
+/* widoczny fokus dla obsługi klawiaturą */
+.choice-chip:focus-visible,.slot:focus-visible,.instr-chip:focus-visible,.switch:focus-visible,
+.level-card:focus-visible,.cal-cell:focus-visible,.date-chip:focus-visible,.big-cal-cell:focus-visible,
+.empty-slot:focus-visible,button:focus-visible{outline:2px solid var(--lv5);outline-offset:2px;}
+.empty-slot{cursor:pointer;}
+.empty-slot:hover{background:rgba(74,144,217,0.12);color:var(--ice);}
+#update-banner{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:300;background:var(--navy-3);border:1px solid var(--lv5);color:#fff;padding:12px 16px;border-radius:12px;display:flex;gap:12px;align-items:center;box-shadow:var(--shadow);font-size:14px;font-weight:600;}
 .toast{
   position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(20px);
   background:var(--navy-3);border:1px solid var(--ice);color:#fff;
@@ -772,7 +786,8 @@ import {
   createUserWithEmailAndPassword, sendPasswordResetEmail
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js";
 import {
-  getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, writeBatch,
+  getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, runTransaction,
+  doc, getDoc, setDoc, updateDoc, deleteDoc, writeBatch,
   collection, addDoc, query, where, onSnapshot, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
 import {
@@ -791,7 +806,16 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = getFirestore(app);
+/* Lokalny cache Firestore: aplikacja czyta dane i przyjmuje zmiany także bez zasięgu
+   (zmiany synchronizują się po powrocie sieci). Gdy przeglądarka tego nie obsługuje,
+   wracamy do zwykłej instancji. */
+let db;
+try{
+  db = initializeFirestore(app, {localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})});
+}catch(e){
+  console.warn('Cache offline Firestore niedostępny:', e);
+  db = getFirestore(app);
+}
 
 /* Region wdrożonych funkcji w chmurze. Domyślnie Firebase wdraża je do
    us-central1 — jeśli wdrożysz je do innego regionu (np. europe-central2),
@@ -801,8 +825,17 @@ const functions = getFunctions(app, FUNCTIONS_REGION);
 
 /* Rejestracja service workera — umożliwia instalację "jak aplikacja" na telefonie */
 if ('serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  });
+  // nowy service worker przejął stronę => na ekranie może być jeszcze stara wersja
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if(!hadController || document.getElementById('update-banner')) return;
+    const b = document.createElement('div');
+    b.id = 'update-banner';
+    b.innerHTML = '<span>Dostępna nowa wersja aplikacji</span><button class="btn btn-gold" style="padding:8px 14px;font-size:14px;" onclick="location.reload()">Odśwież</button>';
+    document.body.appendChild(b);
   });
 }
 
@@ -1041,8 +1074,24 @@ if ('serviceWorker' in navigator) {
            • powiadomienie push o kolejce z własną godziną i wyborem, czy
              dotyczy zajęć jutrzejszych czy dzisiejszych (funkcja
              notifySmsQueue w functions-example.js)
+   1.23.0 — poprawki po audycie:
+           • bezpieczeństwo: naprawiony stored XSS (escAttr nie escapował "&"),
+             identyfikatory z bazy w onclick też escapowane, hasła z crypto
+           • zajęcia o godzinie spoza siatki są widoczne w grafiku; kolizje
+             liczone na przedziałach czasu; zapis w transakcji (brak podwójnych
+             rezerwacji); dotknięcie wolnej komórki grafiku zaczyna zapis
+           • płatności: poprawna kolumna "Do zapłaty" w Uczniach, "Rozlicz
+             wszystko" z wyborem formy płatności i zapisem paczką, "Wpłynęło
+             dziś" wg daty przyjęcia, potwierdzenie cofnięcia płatności
+           • statystyki liczą przychód tylko za zajęcia do dziś; czyszczenie
+             nie usuwa nieopłaconych zajęć
+           • SMS oznaczany jako wysłany dopiero po potwierdzeniu
+           • tryb offline: cache Firestore, cache SDK/czcionek w sw.js, odporny
+             start bez sieci; baner "nowa wersja"; osobny SW dla push
+           • przerysowanie z bazy nie kasuje wpisywanej notatki/ustawień
+           • większe cele dotykowe, obsługa klawiatury, zoom niezablokowany
 ===================================================================== */
-const APP_VERSION = '1.22.0';
+const APP_VERSION = '1.23.0';
 document.querySelectorAll('.app-version').forEach(el => el.textContent = 'v' + APP_VERSION);
 
 const LEVELS = [
@@ -1094,7 +1143,15 @@ function esc(s){
 }
 /* Do wstawiania wewnątrz onclick="fn('...')" — escapuje apostrof i backslash */
 function escAttr(s){
-  return String(s ?? '').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+  // 1) escapowanie dla literału JS w apostrofach, 2) escapowanie dla atrybutu HTML.
+  // Kolejność ma znaczenie: przeglądarka najpierw dekoduje encje HTML, dopiero potem
+  // wykonuje JS — wcześniejsza wersja nie escapowała "&", więc imię typu
+  // "x&#39;);alert(1);//" wychodziło z literału (stored XSS).
+  const js = String(s ?? '')
+    .replace(/\\/g,'\\\\').replace(/'/g,"\\'")
+    .replace(/\r/g,'\\r').replace(/\n/g,'\\n')
+    .replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');
+  return esc(js);
 }
 function pad(n){return String(n).padStart(2,'0');}
 function toMinutes(hhmm){ const [h,m] = hhmm.split(':').map(Number); return h*60+(m||0); }
@@ -1145,12 +1202,13 @@ function personalBreakWindow(instructor, dateIso){
   return {start, end: start + (instructor.breakDuration||15)};
 }
 function todayISO(){const d=new Date();return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;}
+function isoOfMs(ms){const d=new Date(ms);return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;}
 function showToast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(showToast._t);
-  showToast._t = setTimeout(()=>t.classList.remove('show'), 2600);
+  showToast._t = setTimeout(()=>t.classList.remove('show'), Math.max(2600, String(msg).length*55)); // długie komunikaty błędów dłużej na ekranie
 }
 function levelMeta(n){return LEVELS.find(l=>l.n===n) || LEVELS[0];}
 function fmtMoney(n){return Math.round(n||0).toLocaleString('pl-PL')+' zł';}
@@ -1193,6 +1251,13 @@ function lessonPrice(l){
    (np. z 55 na 90 min) nie przepisuje wstecz historycznych statystyk.
    Starsze zapisy bez tego pola korzystają z aktualnego ustawienia. */
 function lessonMinutes(l){ return l.durationMinutes || settings.lessonDuration; }
+/* Kolizje liczymy na przedziałach czasu, nie na identycznej godzinie startu —
+   zajęcia o 9:30 nakładają się na te o 9:00–9:55. */
+function overlappingLesson(list, instructorId, time, ignoreId){
+  const start = toMinutes(time), end = start + settings.lessonDuration;
+  return list.find(l=>l.id!==ignoreId && l.instructorId===instructorId && l.status!=='cancelled'
+    && toMinutes(l.time) < end && start < toMinutes(l.time) + lessonMinutes(l));
+}
 
 /* ===== PŁATNOŚCI =====
    Zajęcia uznajemy za zaległe, gdy się już skończyły, minął czas karencji
@@ -1284,11 +1349,12 @@ function smsDecision(l){
 }
 function smsMessageFor(l){
   const tpl = settings.smsTemplate || 'Przypominamy o zajeciach {data} o {godzina}.';
+  // funkcje zamiast tekstu — imię z "$&" nie jest interpretowane jako wzorzec zamiany
   return tpl
-    .replace(/{imie}/g, l.studentName)
-    .replace(/{data}/g, fmtDatePL(l.date))
-    .replace(/{godzina}/g, l.time)
-    .replace(/{instruktor}/g, l.instructorName);
+    .replace(/{imie}/g, ()=>l.studentName)
+    .replace(/{data}/g, ()=>fmtDatePL(l.date))
+    .replace(/{godzina}/g, ()=>l.time)
+    .replace(/{instruktor}/g, ()=>l.instructorName);
 }
 function smsHref(l){
   return `sms:${l.studentPhone}?body=${encodeURIComponent(smsMessageFor(l))}`;
@@ -1375,7 +1441,13 @@ onAuthStateChanged(auth, async (user)=>{
     if(unsubDayNotes) unsubDayNotes();
     return;
   }
-  const snap = await getDoc(doc(db,'users',user.uid));
+  let snap;
+  try{
+    snap = await getDoc(doc(db,'users',user.uid));
+  }catch(e){
+    showToast('Brak połączenia z bazą — spróbuj ponownie za chwilę');
+    return;
+  }
   if(!snap.exists()) return; // handled in doLogin flow
   const profile = snap.data();
   currentUser = {uid:user.uid, ...profile};
@@ -1407,8 +1479,12 @@ onAuthStateChanged(auth, async (user)=>{
 
 /* ============ SETTINGS ============ */
 async function loadSettings(){
-  const snap = await getDoc(doc(db,'settings','general'));
-  if(snap.exists()) settings = {...settings, ...snap.data()};
+  try{
+    const snap = await getDoc(doc(db,'settings','general'));
+    if(snap.exists()) settings = {...settings, ...snap.data()};
+  }catch(e){
+    console.warn('Nie wczytano ustawień — używam domyślnych/zapamiętanych', e);
+  }
 }
 window.saveSettings = async function(){
   const basePrice = Number(document.getElementById('set-baseprice').value)||0;
@@ -1460,14 +1536,50 @@ window.saveSettings = async function(){
    pisania kasowałoby zawartość i kursor w polu wyszukiwarki. Dlatego przy
    otwartej zakładce Uczniowie odświeżamy tylko samą listę, a jeśli użytkownik
    właśnie pisze w wyszukiwarce — odkładamy przerysowanie. */
+let pendingRerender = false;
+function isEditingInMain(){
+  const a = document.activeElement, main = document.getElementById('main-content');
+  return !!(a && main && main.contains(a) && ['INPUT','TEXTAREA','SELECT'].includes(a.tagName));
+}
+/* Zapamiętuje to, co użytkownik wpisał w polach strony, żeby przerysowanie
+   wywołane danymi z bazy nie kasowało niezapisanej notatki czy ustawień. */
+function captureFormValues(){
+  const vals = {}, sw = {};
+  document.querySelectorAll('#main-content input[id], #main-content textarea[id], #main-content select[id]')
+    .forEach(el=>{ vals[el.id] = el.value; });
+  document.querySelectorAll('#main-content .switch[id]').forEach(el=>{ sw[el.id] = el.classList.contains('on'); });
+  return {vals, sw, page: currentPage};
+}
+function restoreFormValues(saved){
+  if(saved.page !== currentPage) return;
+  Object.entries(saved.vals).forEach(([id,v])=>{ const el = document.getElementById(id); if(el && el.value!==v) el.value = v; });
+  Object.entries(saved.sw).forEach(([id,on])=>{ const el = document.getElementById(id); if(el) el.classList.toggle('on', on); });
+}
 function safeRerender(){
   const active = document.activeElement;
   if(active && active.id==='student-search'){
     if(currentPage==='uczniowie') renderStudentsList();
     return;
   }
+  // ustawienia zmieniają się tylko po zapisie — dane z bazy nie powinny ich przerysowywać
+  if(currentPage==='ustawienia') return;
+  // użytkownik właśnie pisze: odkładamy przerysowanie do końca edycji
+  if(isEditingInMain()){ pendingRerender = true; return; }
+  const saved = captureFormValues();
   renderPage();
+  restoreFormValues(saved);
 }
+document.addEventListener('focusout', ()=>{
+  if(!pendingRerender) return;
+  clearTimeout(safeRerender._t);
+  safeRerender._t = setTimeout(()=>{
+    if(isEditingInMain()) return;
+    pendingRerender = false;
+    const saved = captureFormValues();
+    renderPage();
+    restoreFormValues(saved);
+  }, 1500);
+});
 function subscribeInstructors(){
   if(unsubUsers) unsubUsers();
   unsubUsers = onSnapshot(query(collection(db,'users'), where('role','==','instructor')), (qs)=>{
@@ -1554,14 +1666,23 @@ async function initPush(){
   }
 }
 
+/* Push ma WŁASNY service worker w osobnym scope. Dwa service workery nie mogą
+   dzielić jednego scope — wcześniej getRegistration('./') zwracał sw.js (cache),
+   który nie obsługuje zdarzeń push, więc powiadomienia nie wyświetlały się
+   przy zamkniętej aplikacji. */
+const PUSH_SCOPE = './firebase-cloud-messaging-push-scope';
+async function getPushRegistration(){
+  return (await navigator.serviceWorker.getRegistration(PUSH_SCOPE))
+    || await navigator.serviceWorker.register('./firebase-messaging-sw.js', {scope: PUSH_SCOPE});
+}
+
 async function registerPushToken(){
   if(!messaging) return null;
   if(!VAPID_PUBLIC_KEY || VAPID_PUBLIC_KEY.startsWith('WKLEJ')){
     console.warn('Brak klucza VAPID — powiadomienia push nie zadziałają.');
     return null;
   }
-  const reg = await navigator.serviceWorker.getRegistration('./')
-    || await navigator.serviceWorker.register('./firebase-messaging-sw.js');
+  const reg = await getPushRegistration();
   const token = await getToken(messaging, {vapidKey: VAPID_PUBLIC_KEY, serviceWorkerRegistration: reg});
   if(!token) return null;
   // token zapisujemy przy użytkowniku — funkcja w chmurze wysyła na te tokeny.
@@ -1602,7 +1723,7 @@ window.enablePush = async function(){
 window.disablePushOnThisDevice = async function(){
   try{
     if(!messaging) return;
-    const reg = await navigator.serviceWorker.getRegistration('./');
+    const reg = await getPushRegistration();
     const token = await getToken(messaging, {vapidKey: VAPID_PUBLIC_KEY, serviceWorkerRegistration: reg}).catch(()=>null);
     const tokens = (currentUser.fcmTokens||[]).filter(t=>t!==token);
     await updateDoc(doc(db,'users',currentUser.uid), {fcmTokens: tokens});
@@ -1807,7 +1928,7 @@ function renderDayNotesCard(dateIso){
             <b>${esc(n.author)}</b>
             <span>${new Date(n.at).toLocaleString('pl-PL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
             ${(n.authorId===currentUser.uid || currentUser.role==='operator')
-              ? `<button class="note-del" onclick="deleteDayNote('${dateIso}','${n.id}')" title="Usuń">✕</button>` : ''}
+              ? `<button class="note-del" onclick="deleteDayNote('${dateIso}','${escAttr(n.id)}')" title="Usuń">✕</button>` : ''}
           </div>
           <div class="note-text">${esc(n.text)}</div>
         </div>`).join('')}</div>`}
@@ -1867,7 +1988,7 @@ function renderAbsenceModalContent(){
       ${upcoming.length===0 ? `<div style="color:var(--mist-dim);font-size:13.5px;">Brak zgłoszonych nieobecności.</div>` :
         upcoming.map(a=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--navy-3);font-size:13.5px;gap:10px;">
           <div><b>${fmtDatePL(a.date)}</b> — ${a.allDay ? 'cały dzień' : `${a.startTime}–${a.endTime}`}${a.reason?` <span style="color:var(--mist-dim);">(${esc(a.reason)})</span>`:''}</div>
-          <button class="icon-btn danger" onclick="deleteAbsence('${a.id}')">Usuń</button>
+          <button class="icon-btn danger" onclick="deleteAbsence('${escAttr(a.id)}')">Usuń</button>
         </div>`).join('')}
     </div>
   `;
@@ -1884,7 +2005,7 @@ window.addAbsence = async function(){
 
   const conflicts = lessons.filter(l =>
     l.instructorId===absenceModalInstructor.uid && l.date===date && l.status!=='cancelled' &&
-    (allDay || (toMinutes(l.time) < toMinutes(endTime) && toMinutes(l.time)+settings.lessonDuration > toMinutes(startTime)))
+    (allDay || (toMinutes(l.time) < toMinutes(endTime) && toMinutes(l.time)+lessonMinutes(l) > toMinutes(startTime)))
   );
   if(conflicts.length>0){
     const ok = confirm(`Uwaga: ${conflicts.length} już zapisanych zajęć koliduje z tą nieobecnością (godz. ${conflicts.map(c=>c.time).join(', ')}). Nieobecność zostanie zapisana, ale te zajęcia trzeba będzie ręcznie przełożyć lub odwołać w zakładce Zapisy. Kontynuować?`);
@@ -2117,7 +2238,11 @@ function renderDayScheduleGrid(dateIso, onlyInstructorId){
 
   // build display rows: booking slots plus a synthetic lunch-break marker
   // inserted at its correct chronological position
-  const rows = slots.map(t=>({type:'slot', t}));
+  // zajęcia o godzinie spoza siatki (np. "Inna godzina") dostają własny wiersz —
+  // wcześniej były niewidoczne w grafiku, choć liczyły się w statystykach i SMS-ach
+  const slotSet = new Set(slots);
+  const extraTimes = [...new Set(dayLessons.map(l=>toMinutes(l.time)))].filter(t=>!slotSet.has(t));
+  const rows = [...slots, ...extraTimes].sort((a,b)=>a-b).map(t=>({type:'slot', t, extra:!slotSet.has(t)}));
   if(lunch){
     let idx = rows.findIndex(r=>r.t >= lunch.end);
     if(idx===-1) idx = rows.length;
@@ -2132,7 +2257,7 @@ function renderDayScheduleGrid(dateIso, onlyInstructorId){
     }
     const t = row.t;
     const time = fromMinutes(t);
-    html += `<tr><td class="time-cell"><b>${time}</b>${weatherIconHtml(dateIso, time)}</td>`;
+    html += `<tr><td class="time-cell"><b>${time}</b>${weatherIconHtml(dateIso, time)}${row.extra?'<div style="font-size:10.5px;color:var(--warn);">poza siatką</div>':''}</td>`;
     gridInstructors.forEach(ins=>{
       const lesson = dayLessons.find(l=>l.time===time && l.instructorId===ins.uid);
       if(lesson){
@@ -2140,9 +2265,9 @@ function renderDayScheduleGrid(dateIso, onlyInstructorId){
         const canManage = currentUser.role==='operator' || currentUser.canManageAll || lesson.instructorId===currentUser.uid;
         html += `<td>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-            <span ${canManage?`onclick="openLessonEdit('${lesson.id}')" style="cursor:pointer;"`:''}><span class="dot" style="background:${cssColor(lv.key)}"></span> <b style="font-size:13px;">${esc(lesson.studentName)}</b>${lesson.lessonType==='group'?` 👥${lesson.groupSize||2}`:''}${
+            <span ${canManage?`onclick="openLessonEdit('${escAttr(lesson.id)}')" style="cursor:pointer;"`:''}><span class="dot" style="background:${cssColor(lv.key)}"></span> <b style="font-size:13px;">${esc(lesson.studentName)}</b>${lesson.lessonType==='group'?` 👥${lesson.groupSize||2}`:''}${
   smsDecision(lesson).send ? `<span title="${lesson.reminderSent?'SMS wysłany':'Dostanie SMS: '+esc(smsDecision(lesson).reason)}" style="margin-left:4px;font-size:11px;">${lesson.reminderSent?'✅':'📩'}</span>` : ''}</span>
-            ${canManage ? `<button class="pay-toggle ${lesson.paymentStatus==='paid'?'paid':''} ${isOverdue(lesson)?'overdue':''}" onclick="toggleLessonPayment('${lesson.id}')" title="${lesson.paymentStatus==='paid'?`Zapłacono${lesson.paymentMethod?' ('+(PAYMENT_METHODS[lesson.paymentMethod]||'')+')':''} — dotknij, aby cofnąć`:isOverdue(lesson)?`Zaległość od ${fmtOverdue(overdueMinutes(lesson))} — dotknij, aby rozliczyć`:'Do zapłaty — dotknij, aby oznaczyć jako zapłacone'}">${lesson.paymentStatus==='paid'?'✓':'zł'}</button>` : paymentBadge(lesson.paymentStatus)}
+            ${canManage ? `<button class="pay-toggle ${lesson.paymentStatus==='paid'?'paid':''} ${isOverdue(lesson)?'overdue':''}" onclick="toggleLessonPayment('${escAttr(lesson.id)}')" title="${lesson.paymentStatus==='paid'?`Zapłacono${lesson.paymentMethod?' ('+(PAYMENT_METHODS[lesson.paymentMethod]||'')+')':''} — dotknij, aby cofnąć`:isOverdue(lesson)?`Zaległość od ${fmtOverdue(overdueMinutes(lesson))} — dotknij, aby rozliczyć`:'Do zapłaty — dotknij, aby oznaczyć jako zapłacone'}">${lesson.paymentStatus==='paid'?'✓':'zł'}</button>` : paymentBadge(lesson.paymentStatus)}
           </div>
         </td>`;
       }else{
@@ -2153,7 +2278,13 @@ function renderDayScheduleGrid(dateIso, onlyInstructorId){
         if(pb) inPersonalBreak = t < pb.end && t + settings.lessonDuration > pb.start;
         if(absentAll || inAbsencePartial) html += `<td style="text-align:center;color:var(--mist-dim);">🚫</td>`;
         else if(inPersonalBreak) html += `<td style="text-align:center;color:var(--mist-dim);">☕</td>`;
-        else html += `<td style="text-align:center;color:var(--navy-4);">—</td>`;
+        else{
+          // dotknięcie wolnej komórki zaczyna zapis z wypełnionym dniem, godziną i instruktorem
+          const canBook = dateIso >= todayISO() && (currentUser.role==='operator' || currentUser.canManageAll || ins.uid===currentUser.uid);
+          html += canBook
+            ? `<td class="empty-slot" style="text-align:center;color:var(--navy-4);" title="Zapisz kursanta na ${time}" aria-label="Wolne ${time} — zapisz kursanta" onclick="openWizardAt('${dateIso}','${time}','${escAttr(ins.uid)}','${escAttr(ins.name)}')">—</td>`
+            : `<td style="text-align:center;color:var(--navy-4);">—</td>`;
+        }
       }
     });
     html += `</tr>`;
@@ -2205,6 +2336,8 @@ window.toggleLessonPayment = async function(id){
   const l = lessons.find(x=>x.id===id);
   if(!l) return;
   const next = l.paymentStatus==='paid' ? 'unpaid' : 'paid';
+  // cofnięcie płatności kasuje ślad (kto, kiedy, jak) — jeden przypadkowy dotyk nie może tego zrobić
+  if(next==='unpaid' && !confirm(`Cofnąć płatność za zajęcia: ${l.studentName}, ${fmtDatePL(l.date)} ${l.time}?`)) return;
   const payload = next==='paid'
     ? {paymentStatus:'paid', paymentMethod: l.paymentMethod || 'cash', paidAt: Date.now(),
        paidByName: currentUser.name || currentUser.email, paidById: currentUser.uid}
@@ -2385,7 +2518,7 @@ window.saveLessonEdit = async function(){
   const groupSize = lessonType==='group' ? Math.max(2, editDraft.groupSize) : 1;
   const clientPrice = Math.max(0, editDraft.price);
 
-  const conflict = lessons.find(x=>x.id!==editingLessonId && x.date===date && x.time===time && x.instructorId===instructorId && x.status!=='cancelled');
+  const conflict = overlappingLesson(lessons.filter(x=>x.date===date), instructorId, time, editingLessonId);
   if(conflict){
     const ok = confirm(`Uwaga: ${instructorName} ma już zajęcia o ${time} tego dnia (uczeń: ${conflict.studentName}). Zapisać mimo to?`);
     if(!ok) return;
@@ -2453,7 +2586,8 @@ function renderPaymentsPage(main){
   const overdueTotal = overdue.reduce((s,l)=>s+lessonPrice(l),0);
 
   // zapłacone dziś — dla kontroli kasy na koniec dnia
-  const paidToday = lessons.filter(l=>l.paymentStatus==='paid' && l.date===todayISO());
+  // "dziś" = dzień przyjęcia płatności (paidAt), a nie data zajęć
+  const paidToday = lessons.filter(l=>l.paymentStatus==='paid' && (l.paidAt ? isoOfMs(l.paidAt) : l.date)===todayISO());
   const cashToday = paidToday.filter(l=>(l.paymentMethod||'cash')==='cash').reduce((s,l)=>s+lessonPrice(l),0);
 
   main.innerHTML = `
@@ -2476,7 +2610,7 @@ function renderPaymentsPage(main){
           <td>${esc(l.instructorName)}</td>
           <td><b>${fmtMoney(lessonPrice(l))}</b></td>
           <td><span class="badge" style="background:#E6394622;color:#E63946;">${fmtOverdue(overdueMinutes(l))}</span></td>
-          <td><button class="btn btn-primary" style="padding:7px 12px;font-size:13px;" onclick="openPayModal('${l.id}')">Rozlicz</button></td>
+          <td><button class="btn btn-primary" style="padding:7px 12px;font-size:13px;" onclick="openPayModal('${escAttr(l.id)}')">Rozlicz</button></td>
         </tr>`).join('')}
       </tbody></table></div>
     </div>` : `<div class="card"><div class="empty-state"><b>Brak zaległości</b>Wszystkie zakończone zajęcia są opłacone.</div></div>`}
@@ -2534,6 +2668,7 @@ window.confirmPayment = async function(){
   try{
     await updateDoc(doc(db,'lessons',payingLessonId), {
       paymentStatus:'paid', clientPrice: amount, paymentMethod: method,
+      ...(amount !== lessonPrice(lessons.find(x=>x.id===payingLessonId)||{}) ? {originalPrice: lessons.find(x=>x.id===payingLessonId)?.originalPrice ?? lessonPrice(lessons.find(x=>x.id===payingLessonId)||{})} : {}),
       paidAt: Date.now(), paidByName: currentUser.name || currentUser.email, paidById: currentUser.uid
     });
     showToast('Rozliczono: '+fmtMoney(amount));
@@ -2541,19 +2676,47 @@ window.confirmPayment = async function(){
   }catch(e){ showToast('Błąd zapisu płatności'); }
 };
 
-window.payAllForStudent = async function(name, phone){
+/* "Rozlicz wszystko" — wybór formy płatności (wcześniej zawsze wpisywało gotówkę,
+   co zawyżało kasę), a zapis idzie jedną paczką: albo wszystko, albo nic. */
+let payingAll = null;
+window.payAllForStudent = function(name, phone){
   const key = studentKey(name, phone);
   const mine = lessons.filter(l=>isUnpaid(l) && studentKey(l.studentName,l.studentPhone)===key);
   if(mine.length===0){ showToast('Brak nieopłaconych zajęć'); return; }
   const total = mine.reduce((s,l)=>s+lessonPrice(l),0);
-  if(!confirm(`Oznaczyć wszystkie ${mine.length} zajęć jako opłacone?\n\nŁącznie: ${fmtMoney(total)} — ${name}`)) return;
+  payingAll = {key, name, phone};
+  document.getElementById('pay-modal-content').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+      <div><h3 style="font-size:20px;">${esc(name)}</h3>
+        <div style="color:var(--mist-dim);font-size:13px;">${mine.length} nieopłaconych zajęć · razem <b style="color:var(--snow);">${fmtMoney(total)}</b></div></div>
+      <button class="wizard-close" style="font-size:22px;" onclick="closePayModal()">✕</button>
+    </div>
+    <div class="opt-label">Forma płatności</div>
+    <div class="choice-row" id="pay-methods">
+      ${Object.entries(PAYMENT_METHODS).map(([k,v],idx)=>
+        `<div class="choice-chip ${idx===0?'selected':''}" data-method="${k}" onclick="selectPayMethod(this)">${v}</div>`).join('')}
+    </div>
+    <button class="btn btn-primary btn-block" style="margin-top:8px;" onclick="confirmPayAll()">✓ Rozlicz ${fmtMoney(total)}</button>
+  `;
+  document.getElementById('pay-modal-backdrop').classList.add('active');
+};
+window.confirmPayAll = async function(){
+  if(!payingAll) return;
+  const method = document.querySelector('#pay-methods .choice-chip.selected')?.dataset.method || 'cash';
+  const mine = lessons.filter(l=>isUnpaid(l) && studentKey(l.studentName,l.studentPhone)===payingAll.key);
+  const total = mine.reduce((s,l)=>s+lessonPrice(l),0);
   try{
-    await Promise.all(mine.map(l=>updateDoc(doc(db,'lessons',l.id), {
-      paymentStatus:'paid', paymentMethod:'cash', paidAt: Date.now(),
-      paidByName: currentUser.name || currentUser.email, paidById: currentUser.uid
-    })));
-    showToast(`Rozliczono ${mine.length} zajęć — ${fmtMoney(total)}`);
-  }catch(e){ showToast('Błąd zapisu płatności'); }
+    for(let i=0;i<mine.length;i+=450){
+      const batch = writeBatch(db);
+      mine.slice(i,i+450).forEach(l=>batch.update(doc(db,'lessons',l.id), {
+        paymentStatus:'paid', paymentMethod:method, paidAt: Date.now(),
+        paidByName: currentUser.name || currentUser.email, paidById: currentUser.uid
+      }));
+      await batch.commit();
+    }
+    showToast(`Rozliczono ${mine.length} zajęć — ${fmtMoney(total)} (${PAYMENT_METHODS[method]})`);
+    closePayModal();
+  }catch(e){ showToast('Błąd zapisu płatności — nic nie zostało zmienione'); }
 };
 
 function renderStudentsPage(main){
@@ -2563,7 +2726,7 @@ function renderStudentsPage(main){
     <div class="card">
       <div class="field" style="max-width:360px;margin-bottom:16px;">
         <label>Szukaj po imieniu lub numerze telefonu</label>
-        <input type="text" id="student-search" placeholder="np. Kasia albo 512345678" value="${studentSearchQuery}" oninput="onStudentSearchInput(this)">
+        <input type="text" id="student-search" placeholder="np. Kasia albo 512345678" value="${esc(studentSearchQuery)}" oninput="onStudentSearchInput(this)">
       </div>
       <div id="students-list-container"></div>
     </div>
@@ -2583,10 +2746,10 @@ function renderStudentsList(){
     return;
   }
   if(list.length===0){
-    container.innerHTML = `<div class="empty-state"><b>Brak wyników</b>Nic nie pasuje do „${studentSearchQuery}”.</div>`;
+    container.innerHTML = `<div class="empty-state"><b>Brak wyników</b>Nic nie pasuje do „${esc(studentSearchQuery)}”.</div>`;
     return;
   }
-  container.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Imię</th><th>Telefon</th><th>Ostatni poziom</th><th>Zajęcia</th><th>Ostatnio</th><th>Płatność</th><th>Opis</th><th></th></tr></thead><tbody>
+  container.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Imię</th><th>Telefon</th><th>Ostatni poziom</th><th>Zajęcia</th><th>Ostatnio</th><th>Do zapłaty</th><th>Opis</th><th></th></tr></thead><tbody>
     ${list.map(s=>{
       const lv = levelMeta(s.level);
       const hasNote = !!(studentNotes[studentDocId(s.key)]?.notes);
@@ -2596,7 +2759,9 @@ function renderStudentsList(){
         <td><span class="badge" style="background:${cssColor(lv.key)}22;color:${cssColor(lv.key)};"><span class="dot" style="background:${cssColor(lv.key)}"></span>${lv.n} — ${lv.label}</span></td>
         <td>${s.count}</td>
         <td>${fmtDatePL(s.lastDate)}</td>
-        <td>${paymentBadge(s.paymentStatus)}</td>
+        <td>${s.debt>0
+          ? `<b>${fmtMoney(s.debt)}</b> <span class="badge" style="background:#F2A90022;color:#F2A900;">${s.unpaidCount} niezapł.</span>`
+          : '<span class="badge" style="background:#2FA84F22;color:#2FA84F;">Rozliczony</span>'}</td>
         <td>${hasNote ? '<span class="badge" style="background:#9B5DE522;color:#9B5DE5;">Jest opis</span>' : '<span style="color:var(--mist-dim);font-size:12.5px;">—</span>'}</td>
         <td><button class="icon-btn" onclick="openStudentDetail('${escAttr(s.name)}','${escAttr(s.phone)}')">Historia</button></td>
       </tr>`;
@@ -2671,9 +2836,9 @@ function renderInstructorsPage(main){
         <td><span class="truncate" title="${esc(i.email)}">${esc(i.email)}</span></td>
         <td>${fmtMoney(i.pricePerLesson)}</td>
         <td>${i.canManageAll ? '<span class="badge" style="background:#2FA84F22;color:#2FA84F;">Zarządza wszystkim</span>' : '<span class="badge" style="background:#8FA4B822;color:#8FA4B8;">Tylko swoje</span>'}${i.canSeeSharedSchedule===false ? ' <span class="badge" style="background:#F2A90022;color:#F2A900;">Bez wspólnego grafiku</span>' : ''}</td>
-        <td><div class="actions-cell"><button class="icon-btn" onclick="openInstructorModal('${i.uid}')">Edytuj</button>
-        <button class="icon-btn" onclick="openAbsenceModal('${i.uid}','${escAttr(i.name)}')">🚫 Nieobecność</button>
-        <button class="icon-btn danger" onclick="removeInstructor('${i.uid}')">Usuń</button></div></td>
+        <td><div class="actions-cell"><button class="icon-btn" onclick="openInstructorModal('${escAttr(i.uid)}')">Edytuj</button>
+        <button class="icon-btn" onclick="openAbsenceModal('${escAttr(i.uid)}','${escAttr(i.name)}')">🚫 Nieobecność</button>
+        <button class="icon-btn danger" onclick="removeInstructor('${escAttr(i.uid)}')">Usuń</button></div></td>
       </tr>`).join('')}
       </tbody></table></div>`}
     </div>
@@ -2713,8 +2878,10 @@ window.closeInstructorModal = function(){ document.getElementById('instructor-mo
 /* Generator czytelnego hasła — bez znaków mylących (0/O, 1/l/I) */
 window.generatePassword = function(){
   const chars = 'abcdefghijkmnpqrstuvwxyz23456789';
+  // crypto zamiast Math.random() — hasło ma być nieprzewidywalne
+  const rnd = new Uint32Array(10); crypto.getRandomValues(rnd);
   let p = '';
-  for(let i=0;i<10;i++) p += chars[Math.floor(Math.random()*chars.length)];
+  for(let i=0;i<10;i++) p += chars[rnd[i] % chars.length];
   document.getElementById('im-newpass').value = p;
 };
 
@@ -2834,16 +3001,19 @@ function renderStatsPage(main){
   const now = new Date();
   const monthStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}`;
   const monthLessons = lessons.filter(l=>l.date.startsWith(monthStr) && l.status!=='cancelled');
-  const totalRevenue = monthLessons.reduce((s,l)=>s+lessonPrice(l),0);
-  const totalPayout = monthLessons.reduce((s,l)=>s+(l.instructorPay||0),0);
+  // przychód i wypłaty liczymy tylko za zajęcia do dziś — zaplanowane na przyszłość
+  // jeszcze niczego nie zarobiły (wcześniej zawyżały przychód i marżę)
+  const doneLessons = monthLessons.filter(l=>l.date<=todayISO());
+  const totalRevenue = doneLessons.reduce((s,l)=>s+lessonPrice(l),0);
+  const totalPayout = doneLessons.reduce((s,l)=>s+(l.instructorPay||0),0);
   const totalHours = sumHours(monthLessons);
-  const unpaid = monthLessons.filter(l=>l.paymentStatus!=='paid').reduce((s,l)=>s+lessonPrice(l),0);
+  const unpaid = doneLessons.filter(l=>l.paymentStatus!=='paid').reduce((s,l)=>s+lessonPrice(l),0);
 
   const byInstructor = {};
   monthLessons.forEach(l=>{
     if(!byInstructor[l.instructorId]) byInstructor[l.instructorId] = {name:l.instructorName, count:0, payout:0, minutes:0};
     byInstructor[l.instructorId].count++;
-    byInstructor[l.instructorId].payout += (l.instructorPay||0);
+    if(l.date<=todayISO()) byInstructor[l.instructorId].payout += (l.instructorPay||0);
     byInstructor[l.instructorId].minutes += lessonMinutes(l);
   });
   const rows = Object.values(byInstructor).sort((a,b)=>b.count-a.count);
@@ -2853,14 +3023,14 @@ function renderStatsPage(main){
     <div class="stats-grid">
       <div class="stat c-lv2"><div class="num">${monthLessons.length}</div><div class="lbl">Zajęć w tym miesiącu</div></div>
       <div class="stat c-lv1"><div class="num">${totalHours.toFixed(0)}h</div><div class="lbl">Godzin łącznie</div></div>
-      <div class="stat c-lv5"><div class="num">${fmtMoney(totalRevenue)}</div><div class="lbl">Przychód</div></div>
+      <div class="stat c-lv5"><div class="num">${fmtMoney(totalRevenue)}</div><div class="lbl">Przychód (do dziś)</div></div>
       <div class="stat"><div class="num">${fmtMoney(totalRevenue-totalPayout)}</div><div class="lbl">Marża (po wypłatach)</div></div>
       <div class="stat c-danger"><div class="num">${fmtMoney(unpaid)}</div><div class="lbl">Do zapłaty od klientów</div></div>
     </div>
     <div class="card">
       <h3>Instruktorzy w tym miesiącu</h3>
       ${rows.length===0 ? `<div class="empty-state"><b>Brak danych</b>Jeszcze żadnych zajęć w tym miesiącu.</div>` :
-      `<div class="table-wrap"><table><thead><tr><th>Instruktor</th><th>Zajęcia</th><th>Godziny</th><th>Wypłata</th></tr></thead><tbody>
+      `<div class="table-wrap"><table><thead><tr><th>Instruktor</th><th>Zajęcia</th><th>Godziny</th><th>Wypłata (do dziś)</th></tr></thead><tbody>
       ${rows.map(r=>`<tr><td class="name-cell">${avatarHtml(r.name)}<b>${esc(r.name)}</b></td><td>${r.count}</td><td>${(r.minutes/60).toFixed(1)}h</td><td>${fmtMoney(r.payout)}</td></tr>`).join('')}
       </tbody></table></div>`}
     </div>
@@ -2934,13 +3104,17 @@ window.clearStatistics = async function(){
   if(instructorId) target = target.filter(l=>l.instructorId===instructorId);
   if(beforeDate) target = target.filter(l=>l.date < beforeDate);
 
-  if(target.length===0){ showToast('Brak zajęć pasujących do tego zakresu'); return; }
+  // nieopłaconych zajęć nie kasujemy — to należności; usunięcie zgubiłoby dług
+  const unpaidSkipped = target.filter(isUnpaid).length;
+  target = target.filter(l=>!isUnpaid(l));
+
+  if(target.length===0){ showToast(unpaidSkipped>0 ? `Pominięto ${unpaidSkipped} nieopłaconych zajęć — najpierw je rozlicz` : 'Brak zajęć pasujących do tego zakresu'); return; }
 
   const who = instructorId ? (instructors.find(i=>i.uid===instructorId)?.name || 'wybranego instruktora') : 'wszystkich instruktorów';
   const when = beforeDate ? ` sprzed ${fmtDatePL(beforeDate)}` : '';
   const revenue = target.reduce((s,l)=>s+lessonPrice(l),0);
 
-  if(!confirm(`Usunąć ${target.length} zajęć — ${who}${when}?\n\nŁącznie na kwotę ${fmtMoney(revenue)}.\nTEJ OPERACJI NIE DA SIĘ COFNĄĆ.`)) return;
+  if(!confirm(`Usunąć ${target.length} zajęć — ${who}${when}?\n\nŁącznie na kwotę ${fmtMoney(revenue)}.${unpaidSkipped>0?`\n(Pominięto ${unpaidSkipped} nieopłaconych zajęć — nie są usuwane.)`:''}\nTEJ OPERACJI NIE DA SIĘ COFNĄĆ.`)) return;
 
   const typed = prompt(`Ostateczne potwierdzenie.\n\nWpisz USUŃ (wielkimi literami), aby trwale usunąć ${target.length} zajęć:`);
   if(typed !== 'USUŃ'){ showToast('Anulowano — nic nie usunięto'); return; }
@@ -3081,9 +3255,9 @@ function renderRemindersPage(main){
               <div class="sms-preview">${esc(smsMessageFor(l))}</div>
             </div>
             <div class="sms-actions">
-              <a class="btn btn-primary" style="padding:9px 14px;font-size:13px;text-decoration:none;" href="${esc(smsHref(l))}" onclick="markSmsSent('${l.id}')">Wyślij</a>
-              <button class="icon-btn" onclick="markSmsSent('${l.id}')" title="Oznacz jako wysłane bez otwierania SMS-nika">✓</button>
-              <button class="icon-btn" onclick="setSmsOverride('${l.id}','skip')" title="Pomiń tego kursanta">✕</button>
+              <a class="btn btn-primary" style="padding:9px 14px;font-size:13px;text-decoration:none;" href="${esc(smsHref(l))}" onclick="smsOpened('${escAttr(l.id)}')">Wyślij</a>
+              <button class="icon-btn" onclick="markSmsSent('${escAttr(l.id)}')" title="Oznacz jako wysłane bez otwierania SMS-nika">✓</button>
+              <button class="icon-btn" onclick="setSmsOverride('${escAttr(l.id)}','skip')" title="Pomiń tego kursanta">✕</button>
             </div>
           </div>`).join('')}
       </div>
@@ -3093,7 +3267,7 @@ function renderRemindersPage(main){
       <h3>✓ Wysłane (${sent.length})</h3>
       <div class="table-wrap"><table><thead><tr><th>Godz.</th><th>Kursant</th><th>Telefon</th><th></th></tr></thead><tbody>
         ${sent.map(l=>`<tr><td><b>${l.time}</b></td><td>${esc(l.studentName)}</td><td>${esc(l.studentPhone)}</td>
-        <td><button class="icon-btn" onclick="unmarkSmsSent('${l.id}')">Cofnij</button></td></tr>`).join('')}
+        <td><button class="icon-btn" onclick="unmarkSmsSent('${escAttr(l.id)}')">Cofnij</button></td></tr>`).join('')}
       </tbody></table></div>
     </div>` : ''}
 
@@ -3103,7 +3277,7 @@ function renderRemindersPage(main){
       <div class="table-wrap"><table><thead><tr><th>Godz.</th><th>Kursant</th><th>Dlaczego pominięty</th><th></th></tr></thead><tbody>
         ${skipped.map(l=>`<tr><td><b>${l.time}</b></td><td>${esc(l.studentName)}</td>
         <td><span style="color:var(--mist-dim);font-size:12.5px;">${esc(smsDecision(l).reason)}</span></td>
-        <td><button class="icon-btn" onclick="setSmsOverride('${l.id}','force')">📩 Wyślij mimo to</button></td></tr>`).join('')}
+        <td><button class="icon-btn" onclick="setSmsOverride('${escAttr(l.id)}','force')">📩 Wyślij mimo to</button></td></tr>`).join('')}
       </tbody></table></div>
     </div>` : ''}
   `;
@@ -3117,12 +3291,19 @@ window.remJumpTomorrow = function(){
   renderPage();
 };
 window.markSmsSent = async function(id){
-  // odhaczamy z małym opóźnieniem, żeby zdążył otworzyć się SMS-nik
-  setTimeout(async ()=>{
-    try{ await updateDoc(doc(db,'lessons',id), {reminderSent:true, reminderSentAt: Date.now()}); }
-    catch(e){ showToast('Nie udało się oznaczyć jako wysłane'); }
-  }, 400);
+  try{ await updateDoc(doc(db,'lessons',id), {reminderSent:true, reminderSentAt: Date.now()}); }
+  catch(e){ showToast('Nie udało się oznaczyć jako wysłane'); }
 };
+/* Otwarcie SMS-nika to jeszcze nie wysyłka (można zamknąć bez wysłania) — po powrocie
+   do aplikacji pytamy, czy SMS poszedł, i dopiero wtedy odhaczamy. */
+let pendingSmsId = null;
+window.smsOpened = function(id){ pendingSmsId = id; };
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState !== 'visible' || !pendingSmsId) return;
+  const id = pendingSmsId; pendingSmsId = null;
+  const l = lessons.find(x=>x.id===id);
+  if(l && confirm(`Czy SMS do ${l.studentName} został wysłany?`)) markSmsSent(id);
+});
 window.unmarkSmsSent = async function(id){
   await updateDoc(doc(db,'lessons',id), {reminderSent:false});
 };
@@ -3309,7 +3490,7 @@ function renderSettingsPage(main){
 
     <div class="card">
       <h3>Integracje</h3>
-      <div class="field"><label>Adres bramki SMS (URL Cloud Function)</label><input id="set-smsurl" value="${settings.smsWebhookUrl||''}" placeholder="https://europe-central2-twojprojekt.cloudfunctions.net/sendReminders"></div>
+      <div class="field"><label>Adres bramki SMS (URL Cloud Function)</label><input id="set-smsurl" value="${esc(settings.smsWebhookUrl||'')}" placeholder="https://europe-central2-twojprojekt.cloudfunctions.net/sendReminders"></div>
       <button class="btn btn-primary" onclick="saveSettings()">Zapisz ustawienia</button>
     </div>
   `;
@@ -3345,7 +3526,7 @@ function instructorAvailabilityAt(instructorId, dates, time){
   const minutes = toMinutes(time);
   dates.forEach(date=>{
     const dayLessons = lessons.filter(l=>l.date===date && l.status!=='cancelled');
-    const taken = dayLessons.some(l=>l.time===time && l.instructorId===instructorId);
+    const taken = !!overlappingLesson(dayLessons, instructorId, time);
     const pb = personalBreakWindow(instr, date);
     const inBreak = pb && minutes < pb.end && minutes + settings.lessonDuration > pb.start;
     const inAbsence = absenceBlocksMinutes(instructorId, date, minutes);
@@ -3440,6 +3621,19 @@ window.openWizard = function(){
   const d = new Date(); wCalMonth = d.getMonth(); wCalYear = d.getFullYear();
   document.getElementById('wizard-title').textContent = 'Nowy zapis';
   document.getElementById('wizard-overlay').classList.add('active');
+  renderLiftTrack();
+  renderWizardStep();
+};
+/* Zapis od razu z wybranego pustego pola grafiku: dzień, godzina i instruktor
+   są już wybrane, zostaje imię, telefon i poziom. */
+window.openWizardAt = function(dateIso, time, uid, name){
+  openWizard();
+  wData.dates = [dateIso];
+  wData.time = time;
+  wData.instructorId = uid;
+  wData.instructorName = name;
+  const d = new Date(dateIso+'T12:00:00'); wCalMonth = d.getMonth(); wCalYear = d.getFullYear();
+  wStep = wizardSteps().indexOf('name');
   renderLiftTrack();
   renderWizardStep();
 };
@@ -3600,7 +3794,7 @@ function renderWizardStep(){
           const absentDays = dates.filter(d=>isAllDayAbsent(i.uid, d)).length;
           if(absentDays>0) mark = '🚫 ';
         }
-        return `<div class="instr-chip ${cls} ${wData.instructorId===i.uid?'selected':''}" onclick="pickInstructor('${i.uid}','${escAttr(i.name)}')">${mark}${esc(i.name)} <span title="${esc(disciplineLabel(i))}">${disciplineIcons(i)}</span></div>`;
+        return `<div class="instr-chip ${cls} ${wData.instructorId===i.uid?'selected':''}" onclick="pickInstructor('${escAttr(i.uid)}','${escAttr(i.name)}')">${mark}${esc(i.name)} <span title="${esc(disciplineLabel(i))}">${disciplineIcons(i)}</span></div>`;
       }).join('') || '<div style="color:var(--mist-dim);font-size:13px;">Brak instruktorów — dodaj ich w panelu Instruktorzy.</div>'}</div>`;
 
     let mainHtml;
@@ -3849,6 +4043,35 @@ window.resetPriceToDefault = function(){
 window.setPaymentStatus = function(status){ wData.paymentStatus = status; renderWizardStep(); };
 window.onNotesInput = function(el){ wData.notes = el.value; };
 
+/* ============ DOSTĘPNOŚĆ: klikalne <div>y jako przyciski ============
+   Chipy, sloty i przełączniki są zwykłymi <div>ami — dostają tabindex, rolę
+   i obsługę Enter/Spacja, żeby dało się je obsłużyć klawiaturą i czytnikiem. */
+const A11Y_SEL = '.choice-chip,.slot:not(.taken),.instr-chip,.switch,.level-card,.cal-cell:not(.empty),.date-chip,.big-cal-cell:not(.disabled),.empty-slot';
+function enhanceA11y(){
+  document.querySelectorAll(A11Y_SEL).forEach(el=>{
+    if(!el.hasAttribute('tabindex')){
+      el.tabIndex = 0;
+      el.setAttribute('role', el.classList.contains('switch') ? 'switch' : 'button');
+    }
+    if(el.classList.contains('switch')) el.setAttribute('aria-checked', el.classList.contains('on') ? 'true' : 'false');
+    else if(el.classList.contains('selected')) el.setAttribute('aria-pressed','true');
+    else if(el.hasAttribute('aria-pressed')) el.setAttribute('aria-pressed','false');
+  });
+}
+let a11yQueued = false;
+new MutationObserver(()=>{
+  if(a11yQueued) return;
+  a11yQueued = true;
+  requestAnimationFrame(()=>{ a11yQueued = false; enhanceA11y(); });
+}).observe(document.body, {childList:true, subtree:true, attributes:true, attributeFilter:['class']});
+document.addEventListener('keydown', (e)=>{
+  if((e.key==='Enter' || e.key===' ') && e.target.matches && e.target.matches(A11Y_SEL)){
+    e.preventDefault();
+    e.target.click();
+  }
+});
+enhanceA11y();
+
 /* ============ GLOBALNA OBSŁUGA KLAWIATURY I OKIEN ============
    Enter loguje, Escape zamyka otwarte okno/menu, kliknięcie w ciemne tło
    zamyka okno — standardowe zachowania, których brakowało. */
@@ -3877,6 +4100,30 @@ MODAL_IDS.forEach(id=>{
   if(el) el.addEventListener('click', (e)=>{ if(e.target === el) el.classList.remove('active'); });
 });
 
+/* Zapis zajęć w transakcji pod ID zależnym od terminu (data_godzina_instruktor).
+   Dwie osoby zapisujące jednocześnie ten sam termin nie mogą już oboje wygrać:
+   druga transakcja zobaczy zajęty dokument i zakończy się błędem "slot-taken". */
+async function createLessonAtomic(data){
+  const slotKey = `${data.date}_${data.time.replace(':','')}_${data.instructorId}`;
+  return runTransaction(db, async (tx)=>{
+    const ref = doc(db,'lessons',slotKey);
+    const snap = await tx.get(ref);
+    if(snap.exists()){
+      const x = snap.data();
+      const sameSlot = x.date===data.date && x.time===data.time && x.instructorId===data.instructorId;
+      if(sameSlot && x.status!=='cancelled'){
+        const err = new Error('slot-taken'); err.code = 'slot-taken'; throw err;
+      }
+      // dokument pod tym ID jest po odwołaniu lub został przeniesiony — nie nadpisujemy historii
+      const other = doc(collection(db,'lessons'));
+      tx.set(other, data);
+      return other.id;
+    }
+    tx.set(ref, data);
+    return ref.id;
+  });
+}
+
 window.submitWizard = async function(){
   const btn = document.getElementById('wizard-next-btn');
   const dates = [...wData.dates].sort();
@@ -3886,8 +4133,7 @@ window.submitWizard = async function(){
   // zgłosić nieobecność). Przy zapisie na kilka dni sprawdzamy każdy z nich.
   const clashes = [], absentDays = [];
   dates.forEach(d=>{
-    const c = lessons.find(l=>l.date===d && l.time===wData.time
-      && l.instructorId===wData.instructorId && l.status!=='cancelled');
+    const c = overlappingLesson(lessons.filter(l=>l.date===d), wData.instructorId, wData.time);
     if(c) clashes.push({date:d, name:c.studentName});
     else if(absenceBlocksMinutes(wData.instructorId, d, toMinutes(wData.time))) absentDays.push(d);
   });
@@ -3936,11 +4182,17 @@ window.submitWizard = async function(){
       createdAt: serverTimestamp()
     };
     // każdy dzień to osobne zajęcia — można je potem edytować niezależnie
-    await Promise.all(toBook.map(date => addDoc(collection(db,'lessons'), {...base, date})));
-
-    showToast(toBook.length===1
-      ? 'Uczeń zapisany na zajęcia'
-      : `Uczeń zapisany na ${toBook.length} dni`);
+    const results = await Promise.allSettled(toBook.map(date => createLessonAtomic({...base, date})));
+    const okDates = toBook.filter((d,i)=>results[i].status==='fulfilled');
+    if(okDates.length===0){
+      const why = results[0].reason;
+      throw new Error(why?.code==='slot-taken' ? 'ten termin przed chwilą zajął ktoś inny' : (why?.message||'nieznany błąd'));
+    }
+    toBook = okDates;
+    const lost = results.length - okDates.length;
+    showToast(lost>0
+      ? `Zapisano ${okDates.length} z ${results.length} dni — resztę terminów zajął ktoś inny`
+      : (okDates.length===1 ? 'Uczeń zapisany na zajęcia' : `Uczeń zapisany na ${okDates.length} dni`));
     closeWizard();
     calSelectedDate = toBook[0];
     currentPage = 'grafik';

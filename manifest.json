@@ -1,4 +1,5 @@
 {
+  "id": "./",
   "name": "Szkółka Narciarska — Panel",
   "short_name": "Szkółka",
   "description": "Zapisy uczniów, konta instruktorów, statystyki i przypomnienia SMS.",
@@ -9,10 +10,11 @@
   "background_color": "#0B1F33",
   "theme_color": "#0B1F33",
   "lang": "pl",
+  "categories": ["business", "productivity"],
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

@@ -1,95 +1,70 @@
 /**
- * PRZYKŁADOWY kod Cloud Functions dla przypomnień SMS.
- * To NIE jest gotowy, wdrożony kod — to szablon do wdrożenia po Twojej stronie,
- * bo wymaga klucza API bramki SMS, którego nie można umieścić w aplikacji webowej.
+ * Cloud Functions dla Szkółki (v2, Node 20+). SZABLON — wdrażasz go po swojej stronie.
  *
  * Wdrożenie (jednorazowo):
  *   npm install -g firebase-tools
- *   firebase init functions   (wybierz Node.js, JavaScript)
+ *   firebase init functions   (Node.js, JavaScript)
  *   - wklej ten kod do functions/index.js
- *   - w functions/.env dodaj: SMS_API_KEY=twoj_klucz_od_dostawcy
- *   firebase deploy --only functions
+ *   - w functions/.env ustaw adres aplikacji (z ukośnikiem na końcu!), np.:
+ *       APP_URL=https://osmelakowadolina-source.github.io/szkolka-narciarska/
+ *     (aplikacja stoi w podkatalogu GitHub Pages, więc link "/" i ikony z "/icon-192.png"
+ *      wskazywałyby na złą stronę)
+ *   firebase deploy --only functions      (funkcje zaplanowane wymagają planu Blaze)
  *
- * Dwie funkcje:
- *  1) sendReminders — wywoływana ręcznie z panelu (przycisk "Zatwierdź i wyślij")
- *  2) dailyReminderCheck — harmonogram o 18:00 codziennie, wysyła Ci powiadomienie
- *     (np. e-mail) z linkiem do panelu "Przypomnienia" do zatwierdzenia — bo realne
- *     wysyłanie SMS-ów bez Twojej zgody nie jest tu wykonywane automatycznie.
+ * Zmiany względem poprzedniej wersji:
+ *  - USUNIĘTO sendReminders i dailyReminderCheck (bramka SMS). Od v1.22 SMS-y wysyła się
+ *    z telefonu operatora, a sendReminders nie miała uwierzytelnienia — każdy z adresem URL
+ *    mógłby wysyłać SMS-y na Twój koszt. Jeśli kiedyś wrócisz do bramki, użyj onCall
+ *    z sprawdzeniem roli operatora.
+ *  - daty i godziny liczone w strefie Europe/Warsaw (serwer działa w UTC — wcześniej
+ *    koniec zajęć wychodził 1–2 h później, a po północy dzień się przesuwał),
+ *  - guard "raz dziennie" jest atomowy (create) i zwalniany, gdy wysyłka się nie uda,
+ *  - godzina powiadomienia = "od tej godziny, do godziny później", a nie wąskie okno ±15 min.
  */
 
-const {onRequest} = require("firebase-functions/v2/https");
 const {onSchedule} = require("firebase-functions/v2/scheduler");
 const admin = require("firebase-admin");
 admin.initializeApp();
 
-// ---- 1) Wywoływane przez przycisk "Zatwierdź i wyślij SMS-y" w aplikacji ----
-exports.sendReminders = onRequest({cors: true}, async (req, res) => {
-  const {lessons} = req.body; // [{id, phone, name, time, date, instructor}, ...]
-  if (!Array.isArray(lessons) || lessons.length === 0) {
-    return res.status(400).json({error: "Brak listy zajęć do przypomnienia"});
-  }
+const TZ = "Europe/Warsaw";
+const APP_URL = process.env.APP_URL || "https://osmelakowadolina-source.github.io/szkolka-narciarska/";
 
-  const results = [];
-  for (const lesson of lessons) {
-    const text =
-      `Przypomnienie: jutro o ${lesson.time} masz zajecia narciarskie ` +
-      `z instruktorem ${lesson.instructor}. Do zobaczenia! - Szkolka Narciarska`;
-    try {
-      await sendSms(lesson.phone, text); // patrz funkcja pomocnicza niżej
-      results.push({id: lesson.id, ok: true});
-    } catch (e) {
-      results.push({id: lesson.id, ok: false, error: e.message});
-    }
-  }
-  res.json({results});
-});
-
-// ---- 2) Harmonogram: codziennie o 18:00 czasu polskiego ----
-exports.dailyReminderCheck = onSchedule(
-  {schedule: "0 18 * * *", timeZone: "Europe/Warsaw"},
-  async () => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const iso = tomorrow.toISOString().slice(0, 10);
-
-    const snap = await admin.firestore()
-      .collection("lessons")
-      .where("date", "==", iso)
-      .where("reminderSent", "==", false)
-      .get();
-
-    if (snap.empty) return;
-
-    // Tu możesz np. wysłać sobie e-mail/push z liczbą oczekujących przypomnień,
-    // żeby wejść do panelu "Przypomnienia" i kliknąć "Zatwierdź i wyślij".
-    // Jeśli wolisz PEŁNĄ automatyzację bez ręcznej zgody, możesz zamiast tego
-    // od razu wywołać tu sendSms() dla każdego dokumentu z snap.docs — pomiń
-    // wtedy krok zatwierdzania w aplikacji.
-    console.log(`Jutro (${iso}) czeka ${snap.size} niewysłanych przypomnień.`);
-  }
-);
-
-// ---- Funkcja pomocnicza: wysyłka pojedynczego SMS-a ----
-// Przykład dla dostawcy z prostym HTTP API (np. Sendly/Actio, SMSAPI.pl).
-// Podmień URL i format zapytania zgodnie z dokumentacją wybranego dostawcy.
-async function sendSms(phone, text) {
-  const apiKey = process.env.SMS_API_KEY;
-  const response = await fetch("https://api.dostawcasms.pl/v1/sms", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      to: phone,
-      message: text,
-      sender: "SzkolkaSki", // nadpis nadawcy (jeśli dostawca wspiera)
-    }),
+/* ---------------- czas w strefie Europe/Warsaw ---------------- */
+function warsawParts(d = new Date()) {
+  const f = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
   });
-  if (!response.ok) {
-    throw new Error(`Błąd wysyłki SMS: ${response.status}`);
+  const p = Object.fromEntries(f.formatToParts(d).map((x) => [x.type, x.value]));
+  return {
+    y: +p.year, mo: +p.month, d: +p.day, h: +p.hour, mi: +p.minute,
+    iso: `${p.year}-${p.month}-${p.day}`,
+    minutes: (+p.hour) * 60 + (+p.minute),
+  };
+}
+function addDays(iso, n) {
+  const d = new Date(iso + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+/** Moment (ms UTC), w którym w Warszawie jest podana data i godzina. */
+function warsawToMs(iso, h, m) {
+  const [y, mo, d] = iso.split("-").map(Number);
+  const guess = Date.UTC(y, mo - 1, d, h, m);
+  const w = warsawParts(new Date(guess));
+  const offset = Date.UTC(w.y, w.mo - 1, w.d, w.h, w.mi) - guess;
+  return guess - offset;
+}
+
+/** Atomowe "zrób to tylko raz": zwraca false, jeśli ktoś już zarezerwował ten klucz. */
+async function claimOnce(ref) {
+  try {
+    await ref.create({sentAt: admin.firestore.FieldValue.serverTimestamp()});
+    return true;
+  } catch (e) {
+    if (e.code === 6 || /ALREADY_EXISTS/.test(String(e.message))) return false;
+    throw e;
   }
-  return response.json();
 }
 
 /* =====================================================================
@@ -118,6 +93,12 @@ exports.updateInstructorCredentials = onCall(async (request) => {
   const {uid, newEmail, newPassword} = request.data || {};
   if (!uid) throw new HttpsError("invalid-argument", "Brak UID instruktora.");
 
+  // zmieniamy wyłącznie konta instruktorów (nie operatorów i nie dowolne UID)
+  const targetDoc = await admin.firestore().doc(`users/${uid}`).get();
+  if (targetDoc.data()?.role !== "instructor") {
+    throw new HttpsError("failed-precondition", "To nie jest konto instruktora.");
+  }
+
   const payload = {};
   if (newEmail) payload.email = newEmail;
   if (newPassword) {
@@ -144,158 +125,131 @@ exports.updateInstructorCredentials = onCall(async (request) => {
    ---------------------------------------------------------------------
    Wysyła np. "Jutro masz 5 h zajęć, zaczynasz o 9:00".
 
-   Funkcja uruchamia się CO 15 MINUT i sama sprawdza, czy wybiła godzina
-   ustawiona przez operatora w aplikacji (Ustawienia → Codzienne
-   powiadomienie). Dzięki temu zmiana godziny w aplikacji działa od razu,
-   bez ponownego wdrażania funkcji.
-
-   Wymaga planu Blaze (funkcje zaplanowane nie działają na planie Spark).
-   Wdrożenie: firebase deploy --only functions
+   Funkcja uruchamia się CO 15 MINUT i wysyła podsumowanie, gdy minie godzina
+   ustawiona przez operatora w Ustawieniach (okno: godzina od ustawionego czasu).
+   Raz dziennie dzięki atomowemu guardowi; przy awarii wysyłki guard jest zwalniany,
+   więc kolejne uruchomienie spróbuje ponownie.
 ===================================================================== */
-
 exports.sendDailyBrief = onSchedule(
-  {schedule: "every 15 minutes", timeZone: "Europe/Warsaw"},
+  {schedule: "every 15 minutes", timeZone: TZ},
   async () => {
     const db = admin.firestore();
-
-    const settingsSnap = await db.doc("settings/general").get();
-    const s = settingsSnap.data() || {};
+    const s = (await db.doc("settings/general").get()).data() || {};
     if (s.dailyBriefEnabled === false) return;
 
-    const briefTime = s.dailyBriefTime || "18:00";
     const when = s.dailyBriefWhen || "evening"; // evening = o jutrze, morning = o dziś
+    const [bh, bm] = (s.dailyBriefTime || "18:00").split(":").map(Number);
     const lessonDuration = s.lessonDuration || 55;
 
-    // czy właśnie teraz wypada ustawiona godzina? (okno 15 minut)
-    const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Europe/Warsaw"}));
-    const [bh, bm] = briefTime.split(":").map(Number);
-    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const now = warsawParts();
     const briefMin = bh * 60 + bm;
-    if (Math.abs(nowMin - briefMin) >= 15) return;
+    if (now.minutes < briefMin || now.minutes >= briefMin + 60) return;
 
-    // której daty dotyczy podsumowanie
-    const target = new Date(now);
-    if (when === "evening") target.setDate(target.getDate() + 1);
-    const pad = (n) => String(n).padStart(2, "0");
-    const dateIso = `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}`;
+    const dateIso = when === "evening" ? addDays(now.iso, 1) : now.iso;
 
-    // zabezpieczenie przed podwójną wysyłką tego samego dnia
     const guardRef = db.doc(`briefLog/${dateIso}-${when}`);
-    if ((await guardRef.get()).exists) return;
-    await guardRef.set({sentAt: admin.firestore.FieldValue.serverTimestamp()});
+    if (!(await claimOnce(guardRef))) return;
 
-    // zajęcia na dany dzień
-    const lessonsSnap = await db.collection("lessons").where("date", "==", dateIso).get();
-    const byInstructor = {};
-    lessonsSnap.forEach((docSnap) => {
-      const l = docSnap.data();
-      if (l.status === "cancelled") return;
-      if (!byInstructor[l.instructorId]) byInstructor[l.instructorId] = [];
-      byInstructor[l.instructorId].push(l);
-    });
+    try {
+      const lessonsSnap = await db.collection("lessons").where("date", "==", dateIso).get();
+      const byInstructor = {};
+      lessonsSnap.forEach((docSnap) => {
+        const l = docSnap.data();
+        if (l.status === "cancelled") return;
+        (byInstructor[l.instructorId] = byInstructor[l.instructorId] || []).push(l);
+      });
 
-    // nieobecności — nie zawracamy głowy komuś, kto zgłosił wolne
-    const absSnap = await db.collection("absences").where("date", "==", dateIso).get();
-    const allDayOff = new Set();
-    absSnap.forEach((d) => { if (d.data().allDay) allDayOff.add(d.data().instructorId); });
+      // nieobecność na cały dzień — nie zawracamy głowy
+      const absSnap = await db.collection("absences").where("date", "==", dateIso).get();
+      const allDayOff = new Set();
+      absSnap.forEach((d) => { if (d.data().allDay) allDayOff.add(d.data().instructorId); });
 
-    const usersSnap = await db.collection("users").where("role", "==", "instructor").get();
-    const dayWord = when === "evening" ? "Jutro" : "Dziś";
-    const sends = [];
+      const usersSnap = await db.collection("users").where("role", "==", "instructor").get();
+      const dayWord = when === "evening" ? "Jutro" : "Dziś";
+      const sends = [];
 
-    usersSnap.forEach((userDoc) => {
-      const uid = userDoc.id;
-      const user = userDoc.data();
-      const tokens = user.fcmTokens || [];
-      if (tokens.length === 0) return;              // brak zgody na powiadomienia
-      if (allDayOff.has(uid)) return;                // zgłoszona nieobecność
+      usersSnap.forEach((userDoc) => {
+        const uid = userDoc.id;
+        const tokens = userDoc.data().fcmTokens || [];
+        if (tokens.length === 0 || allDayOff.has(uid)) return;
+        const mine = byInstructor[uid] || [];
+        if (mine.length === 0) return;
 
-      const mine = byInstructor[uid] || [];
-      if (mine.length === 0) return;                 // nic nie ma — nie zawracamy głowy
+        mine.sort((a, b) => a.time.localeCompare(b.time));
+        const totalMin = mine.reduce((sum, l) => sum + (l.durationMinutes || lessonDuration), 0);
+        const hours = totalMin / 60;
+        const hoursText = Number.isInteger(hours) ? `${hours} h` : `${hours.toFixed(1)} h`;
+        const lessonWord = mine.length < 5 ? "zajęcia" : "zajęć";
 
-      mine.sort((a, b) => a.time.localeCompare(b.time));
-      const first = mine[0].time;
-      const totalMin = mine.reduce((sum, l) => sum + (l.durationMinutes || lessonDuration), 0);
-      const hours = totalMin / 60;
-      const hoursText = Number.isInteger(hours) ? `${hours} h` : `${hours.toFixed(1)} h`;
-      const lessonWord = mine.length === 1 ? "zajęcia" : (mine.length < 5 ? "zajęcia" : "zajęć");
-
-      sends.push(admin.messaging().sendEachForMulticast({
-        tokens,
-        notification: {
-          title: `${dayWord}: ${mine.length} ${lessonWord} (${hoursText})`,
-          body: `Zaczynasz o ${first}. Ostatnie zajęcia o ${mine[mine.length - 1].time}.`,
-        },
-        webpush: {
-          fcmOptions: {link: "/"},
-          notification: {icon: "/icon-192.png", badge: "/icon-192.png"},
-        },
-      }).then(async (res) => {
-        // sprzątanie nieaktualnych tokenów (np. odinstalowana aplikacja)
-        const dead = [];
-        res.responses.forEach((r, i) => {
-          const code = r.error?.code || "";
-          if (code.includes("registration-token-not-registered") ||
-              code.includes("invalid-argument")) dead.push(tokens[i]);
-        });
-        if (dead.length) {
-          await db.doc(`users/${uid}`).update({
-            fcmTokens: tokens.filter((t) => !dead.includes(t)),
+        sends.push(admin.messaging().sendEachForMulticast({
+          tokens,
+          notification: {
+            title: `${dayWord}: ${mine.length} ${lessonWord} (${hoursText})`,
+            body: `Zaczynasz o ${mine[0].time}. Ostatnie zajęcia o ${mine[mine.length - 1].time}.`,
+          },
+          webpush: {
+            fcmOptions: {link: APP_URL},
+            notification: {icon: `${APP_URL}icon-192.png`, badge: `${APP_URL}icon-192.png`},
+          },
+        }).then(async (res) => {
+          const dead = [];
+          res.responses.forEach((r, i) => {
+            const code = r.error?.code || "";
+            if (code.includes("registration-token-not-registered") ||
+                code.includes("invalid-argument")) dead.push(tokens[i]);
           });
-        }
-      }).catch((e) => console.error("Błąd wysyłki dla " + uid, e)));
-    });
+          if (dead.length) {
+            await db.doc(`users/${uid}`).update({fcmTokens: tokens.filter((t) => !dead.includes(t))});
+          }
+        }));
+      });
 
-    await Promise.all(sends);
-    console.log(`Podsumowanie na ${dateIso}: wysłano do ${sends.length} instruktorów.`);
+      await Promise.all(sends);
+      console.log(`Podsumowanie na ${dateIso}: wysłano do ${sends.length} instruktorów.`);
+    } catch (e) {
+      await guardRef.delete().catch(() => {}); // pozwól następnemu uruchomieniu spróbować ponownie
+      throw e;
+    }
   }
 );
 
 /* =====================================================================
    POWIADOMIENIE O ZALEGŁYCH PŁATNOŚCIACH
    ---------------------------------------------------------------------
-   Sprawdza co 15 minut, czy są zajęcia, które się skończyły ponad
-   X minut temu (ustawienie "paymentGraceMinutes" w aplikacji) i wciąż
-   nie są opłacone. Powiadamia operatora oraz instruktora prowadzącego.
-
-   Każde zajęcia zgłaszane są tylko RAZ — pole reminderPaymentSent
-   zapobiega powtarzaniu powiadomień co kwadrans.
+   Co 15 minut (8:00–21:59 czasu polskiego) sprawdza zajęcia, które skończyły się
+   ponad X minut temu ("paymentGraceMinutes") i nie są opłacone. Powiadamia
+   operatora oraz instruktora prowadzącego. Każde zajęcia zgłaszane są RAZ
+   (pole reminderPaymentSent).
 ===================================================================== */
 exports.notifyUnpaidLessons = onSchedule(
-  {schedule: "every 15 minutes", timeZone: "Europe/Warsaw"},
+  {schedule: "every 15 minutes", timeZone: TZ},
   async () => {
+    const now = warsawParts();
+    if (now.h < 8 || now.h >= 22) return; // w nocy nikogo nie budzimy
+
     const db = admin.firestore();
     const s = (await db.doc("settings/general").get()).data() || {};
     if (s.paymentAlertsEnabled === false) return;
 
     const grace = (s.paymentGraceMinutes ?? 20) * 60000;
     const lessonDuration = s.lessonDuration || 55;
-    const now = Date.now();
+    const nowMs = Date.now();
 
-    // wystarczy sprawdzić dziś i wczoraj — starsze i tak już zgłoszone
-    const pad = (n) => String(n).padStart(2, "0");
-    const d0 = new Date();
-    const d1 = new Date(d0.getTime() - 86400000);
-    const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-
+    // dziś i wczoraj (wg czasu polskiego) — starsze i tak już zgłoszone
     const snap = await db.collection("lessons")
-      .where("date", "in", [iso(d0), iso(d1)])
+      .where("date", "in", [now.iso, addDays(now.iso, -1)])
       .get();
 
     const due = [];
     snap.forEach((docSnap) => {
       const l = {id: docSnap.id, ...docSnap.data()};
-      if (l.status === "cancelled") return;
-      if (l.paymentStatus === "paid") return;
-      if (l.reminderPaymentSent) return;
+      if (l.status === "cancelled" || l.paymentStatus === "paid" || l.reminderPaymentSent) return;
       const [h, m] = l.time.split(":").map(Number);
-      const end = new Date(`${l.date}T00:00:00`);
-      end.setHours(h, m + (l.durationMinutes || lessonDuration), 0, 0);
-      if (now > end.getTime() + grace) due.push(l);
+      const endMs = warsawToMs(l.date, h, m + (l.durationMinutes || lessonDuration));
+      if (nowMs > endMs + grace) due.push(l);
     });
     if (due.length === 0) return;
 
-    // odbiorcy: operatorzy + instruktorzy, których dotyczą zaległe zajęcia
     const usersSnap = await db.collection("users").get();
     const operators = [];
     const byUid = {};
@@ -315,34 +269,27 @@ exports.notifyUnpaidLessons = onSchedule(
       await admin.messaging().sendEachForMulticast({
         tokens,
         notification: {title, body},
-        webpush: {fcmOptions: {link: "/"}, notification: {icon: "/icon-192.png"}},
+        webpush: {fcmOptions: {link: APP_URL}, notification: {icon: `${APP_URL}icon-192.png`}},
       }).catch((e) => console.error("push error", uid, e));
     };
 
-    // operator dostaje zbiorcze podsumowanie
     await Promise.all(operators.map((uid) => sendTo(
       uid,
       `Nieopłacone zajęcia: ${due.length} (${Math.round(total)} zł)`,
       `${names}${more}. Dotknij, aby rozliczyć.`
     )));
 
-    // instruktor dostaje informację o swoich zajęciach
     const perInstructor = {};
-    due.forEach((l) => {
-      if (!perInstructor[l.instructorId]) perInstructor[l.instructorId] = [];
-      perInstructor[l.instructorId].push(l);
-    });
+    due.forEach((l) => { (perInstructor[l.instructorId] = perInstructor[l.instructorId] || []).push(l); });
     await Promise.all(Object.entries(perInstructor).map(([uid, list]) => sendTo(
       uid,
-      `Brak płatności za ${list.length} zajęcia`,
+      `Brak płatności za ${list.length} ${list.length === 1 ? "zajęcia" : list.length < 5 ? "zajęcia" : "zajęć"}`,
       list.map((l) => `${l.time} ${l.studentName} — ${Math.round(l.clientPrice || 0)} zł`).join(", ")
     )));
 
-    // oznaczamy jako zgłoszone, żeby nie powtarzać co kwadrans
     const batch = db.batch();
     due.forEach((l) => batch.update(db.doc(`lessons/${l.id}`), {reminderPaymentSent: true}));
     await batch.commit();
-
     console.log(`Zgłoszono ${due.length} nieopłaconych zajęć.`);
   }
 );
@@ -350,63 +297,57 @@ exports.notifyUnpaidLessons = onSchedule(
 /* =====================================================================
    PRZYPOMNIENIE O WYSYŁCE SMS-ÓW (push do operatora)
    ---------------------------------------------------------------------
-   O godzinie ustawionej w aplikacji (Ustawienia → Przypomnienia SMS)
-   wysyła operatorowi powiadomienie: "Jutro 5 przypomnień do wysłania".
-   Operator otwiera zakładkę Przypomnienia i wysyła je z telefonu.
+   Po godzinie ustawionej w aplikacji (Ustawienia → Przypomnienia SMS) wysyła
+   operatorowi powiadomienie z liczbą zajęć do sprawdzenia. SMS-y wychodzą
+   z telefonu operatora — funkcja ich nie wysyła.
 
-   Funkcja NIE wysyła SMS-ów — one wychodzą z telefonu operatora, więc
-   nie ma żadnych kosztów ani rejestracji u dostawcy SMS.
+   Uwaga: reguły "komu wysłać" (pierwsze zajęcia, powrót po przerwie…) liczy
+   aplikacja, nie serwer. Dlatego treść mówi "do sprawdzenia", a nie
+   "do wysłania" — liczba to górne oszacowanie.
 ===================================================================== */
 exports.notifySmsQueue = onSchedule(
-  {schedule: "every 15 minutes", timeZone: "Europe/Warsaw"},
+  {schedule: "every 15 minutes", timeZone: TZ},
   async () => {
     const db = admin.firestore();
     const s = (await db.doc("settings/general").get()).data() || {};
     if (s.smsPushEnabled === false) return;
 
-    const pushTime = s.smsPushTime || "18:00";
     const when = s.smsPushDay || "evening";
+    const [ph, pm] = (s.smsPushTime || "18:00").split(":").map(Number);
+    const now = warsawParts();
+    const pushMin = ph * 60 + pm;
+    if (now.minutes < pushMin || now.minutes >= pushMin + 60) return;
 
-    const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Europe/Warsaw"}));
-    const [ph, pm] = pushTime.split(":").map(Number);
-    if (Math.abs((now.getHours() * 60 + now.getMinutes()) - (ph * 60 + pm)) >= 15) return;
-
-    const target = new Date(now);
-    if (when === "evening") target.setDate(target.getDate() + 1);
-    const pad = (n) => String(n).padStart(2, "0");
-    const dateIso = `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}`;
-
-    // jedno powiadomienie dziennie
+    const dateIso = when === "evening" ? addDays(now.iso, 1) : now.iso;
     const guard = db.doc(`smsQueueLog/${dateIso}`);
-    if ((await guard.get()).exists) return;
-    await guard.set({sentAt: admin.firestore.FieldValue.serverTimestamp()});
+    if (!(await claimOnce(guard))) return;
 
-    const snap = await db.collection("lessons").where("date", "==", dateIso).get();
-    const pendingCount = snap.docs.filter((d) => {
-      const l = d.data();
-      if (l.status === "cancelled" || l.reminderSent) return false;
-      if (l.smsOverride === "skip") return false;
-      if (l.smsOverride === "force" || s.smsRuleAlways) return true;
-      // pełną regułę liczy aplikacja; tu wystarczy przybliżenie, żeby
-      // nie powiadamiać, gdy na pewno nie ma czego wysyłać
-      return true;
-    }).length;
-    if (pendingCount === 0) return;
+    try {
+      const snap = await db.collection("lessons").where("date", "==", dateIso).get();
+      const pendingCount = snap.docs.filter((d) => {
+        const l = d.data();
+        return l.status !== "cancelled" && !l.reminderSent && l.smsOverride !== "skip";
+      }).length;
+      if (pendingCount === 0) return;
 
-    const usersSnap = await db.collection("users").where("role", "==", "operator").get();
-    const dayWord = when === "evening" ? "Jutro" : "Dziś";
+      const usersSnap = await db.collection("users").where("role", "==", "operator").get();
+      const dayWord = when === "evening" ? "Jutro" : "Dziś";
 
-    await Promise.all(usersSnap.docs.map(async (u) => {
-      const tokens = u.data().fcmTokens || [];
-      if (!tokens.length) return;
-      await admin.messaging().sendEachForMulticast({
-        tokens,
-        notification: {
-          title: `${dayWord}: przypomnienia SMS do wysłania`,
-          body: `Do sprawdzenia ${pendingCount} zajęć. Dotknij, aby otworzyć kolejkę.`,
-        },
-        webpush: {fcmOptions: {link: "/"}, notification: {icon: "/icon-192.png"}},
-      }).catch((e) => console.error("push error", e));
-    }));
+      await Promise.all(usersSnap.docs.map(async (u) => {
+        const tokens = u.data().fcmTokens || [];
+        if (!tokens.length) return;
+        await admin.messaging().sendEachForMulticast({
+          tokens,
+          notification: {
+            title: `${dayWord}: przypomnienia SMS`,
+            body: `Do sprawdzenia do ${pendingCount} zajęć. Dotknij, aby otworzyć kolejkę.`,
+          },
+          webpush: {fcmOptions: {link: APP_URL}, notification: {icon: `${APP_URL}icon-192.png`}},
+        }).catch((e) => console.error("push error", e));
+      }));
+    } catch (e) {
+      await guard.delete().catch(() => {});
+      throw e;
+    }
   }
 );
