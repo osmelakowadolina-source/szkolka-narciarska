@@ -262,7 +262,7 @@ input,select,textarea{font-family:inherit;}
 #drawer-backdrop{display:none;position:fixed;inset:0;background:rgba(5,12,20,0.6);z-index:65;}
 #drawer-backdrop.active{display:block;}
 
-.main{flex:1;min-width:0;padding:28px 32px 60px;max-width:1140px;}
+.main{flex:1;min-width:0;padding:28px 32px 60px;max-width:2000px;margin:0 auto;width:100%;}
 .page-head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:22px;}
 .page-head h1{font-size:32px;}
 .page-sub{color:var(--mist-dim);font-size:13px;text-transform:uppercase;letter-spacing:0.08em;font-weight:600;}
@@ -591,6 +591,7 @@ tbody tr:hover{background:rgba(255,255,255,0.035);}
 .wizard-actions .btn{flex:1;}
 
 .optional-block{margin-top:22px;padding-top:18px;border-top:1px dashed var(--navy-3);}
+.opt-label{font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist-dim);font-weight:700;margin-bottom:10px;}
 .optional-block .opt-label{font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--mist-dim);font-weight:700;margin-bottom:10px;}
 .choice-row{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;}
 .choice-chip{flex:1;min-width:110px;padding:9px 10px;text-align:center;border-radius:9px;background:var(--navy);border:1.5px solid var(--navy-3);font-size:13px;font-weight:700;}
@@ -610,6 +611,51 @@ tbody tr:hover{background:rgba(255,255,255,0.035);}
 .switch.on{background:var(--ice);}
 .switch .knob{position:absolute;top:3px;left:3px;width:19px;height:19px;border-radius:50%;background:#fff;transition:left .2s;}
 .switch.on .knob{left:22px;}
+
+/* ============ SZEROKIE EKRANY ============
+   Treść zajmuje całą dostępną szerokość (do 2000 px, potem wyśrodkowana).
+   Grafik dnia dostaje kolumnę boczną (alerty, nieobecności, notatki), a strony
+   z wieloma kartami (Ustawienia, Przypomnienia, Moje godziny) układają je w kolumny. */
+.dv-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;align-items:start;}
+.dv-grid>.card,.dv-side>.card,.dv-side>*>.card{margin-bottom:0;}
+.dv-side{display:contents;}
+.dv-top{order:1;min-width:0;} .dv-alerts{order:2;display:flex;flex-direction:column;gap:18px;min-width:0;}
+.dv-sched{order:3;min-width:0;} .dv-notes{order:4;min-width:0;}
+.cal-layout{grid-template-columns:minmax(0,1fr);}
+.cols{column-gap:18px;}
+.cols>.card{break-inside:avoid;}
+.perday-grid{display:block;}
+.wizard-panel.wide .wizard-info{position:static;width:auto;margin-bottom:18px;}
+
+@media(min-width:1100px){
+  .cal-layout{grid-template-columns:minmax(320px,420px) minmax(0,1fr);}
+  .perday-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:0 22px;}
+  .wizard-panel.wide{max-width:min(1100px,100%);}
+}
+@media(min-width:1300px){
+  .dv-grid{grid-template-columns:minmax(0,1fr) clamp(340px,24vw,460px);}
+  .dv-side{display:flex;flex-direction:column;gap:18px;grid-column:2;grid-row:1 / span 2;min-width:0;}
+  .dv-top{grid-column:1;grid-row:1;order:0;} .dv-sched{grid-column:1;grid-row:2;order:0;}
+  .dv-alerts,.dv-notes{order:0;}
+  .cols{column-count:2;}
+}
+@media(min-width:1700px){
+  .sidebar{width:250px;}
+  .main{padding:32px 48px 70px;}
+  .page-head h1{font-size:40px;}
+  .card{padding:24px;}
+  .stat .num{font-size:38px;}
+  .stat .lbl{font-size:12.5px;}
+  table{font-size:15.5px;}
+  td{padding:14px 14px;}
+  th{font-size:12.5px;padding:12px 14px;}
+  .nav-item{font-size:15.5px;padding:12px 14px;}
+  .wizard-panel{max-width:560px;}
+}
+@media(min-width:2200px){
+  .cols{column-count:3;}
+  .main{padding:36px 64px 80px;}
+}
 </style>
 </head>
 <body>
@@ -1082,6 +1128,19 @@ if ('serviceWorker' in navigator) {
            • powiadomienie push o kolejce z własną godziną i wyborem, czy
              dotyczy zajęć jutrzejszych czy dzisiejszych (funkcja
              notifySmsQueue w functions-example.js)
+   1.26.0 — kilka godzin dla jednego ucznia: w kroku "Godzina zajęć" można
+           zaznaczyć kilka godzin tego samego dnia — dwie z rzędu (wybierasz
+           "Ile godzin z rzędu" i dotykasz pierwszej) albo dowolne o różnych
+           porach (np. 9:00 i 13:30). Działa też przy zapisie na kilka dni i
+           w trybie różnych godzin; każda godzina to osobne zajęcia. Przed
+           zapisem sprawdzane są nakładanie się godzin, kolizje, nieobecności
+           i dzienny limit godzin instruktora
+   1.25.0 — układ na szerokich ekranach: treść wykorzystuje całą szerokość
+           (bez pustej połowy monitora). Grafik dnia ma kolumnę boczną na
+           alerty, nieobecności i notatki; Zapisy: wąski kalendarz i szeroka
+           lista; Ustawienia, Przypomnienia i Moje godziny układają karty w
+           2–3 kolumny; większa typografia od 1700 px; kreator w trybie
+           różnych godzin pokazuje dni obok siebie
    1.24.0 — zapis na kilka dni z RÓŻNYMI godzinami: w kroku "Godzina zajęć"
            przełącznik "Ta sama godzina każdego dnia" / "Różne godziny w różne
            dni". W drugim trybie ten sam instruktor, a dla każdego dnia osobna
@@ -1105,7 +1164,7 @@ if ('serviceWorker' in navigator) {
            • przerysowanie z bazy nie kasuje wpisywanej notatki/ustawień
            • większe cele dotykowe, obsługa klawiatury, zoom niezablokowany
 ===================================================================== */
-const APP_VERSION = '1.24.0';
+const APP_VERSION = '1.26.0';
 document.querySelectorAll('.app-version').forEach(el => el.textContent = 'v' + APP_VERSION);
 
 const LEVELS = [
@@ -2147,6 +2206,8 @@ function renderDayViewPage(main, onlyInstructorId){
       <button class="btn btn-gold" onclick="openWizard()">＋ Nowy zapis</button>
     </div>
 
+    <div class="dv-grid">
+    <div class="dv-top">
     <div class="card">
       <div class="dayview-nav">
         <button class="icon-btn dayview-arrow" onclick="dayViewShift(-1)" title="Poprzedni dzień">‹</button>
@@ -2169,17 +2230,9 @@ function renderDayViewPage(main, onlyInstructorId){
       ${renderDayWeatherStrip(calSelectedDate)}
     </div>
 
-    ${(()=>{const od = dayLessons.filter(isOverdue);
-      return od.length>0 ? `<div class="card" style="background:rgba(230,57,70,0.09);border-color:rgba(230,57,70,0.4);">
-        <b style="color:var(--danger);font-family:var(--font-display);text-transform:uppercase;">⚠️ ${od.length} nieopłaconych zajęć po terminie — ${fmtMoney(od.reduce((s,l)=>s+lessonPrice(l),0))}</b>
-        <div style="margin-top:8px;font-size:13.5px;">${od.map(l=>`${l.time} <b>${esc(l.studentName)}</b> — ${fmtMoney(lessonPrice(l))} <span style="color:var(--mist-dim);">(${fmtOverdue(overdueMinutes(l))})</span>`).join('<br>')}</div>
-        ${currentUser.role==='operator' ? `<button class="btn btn-primary" style="margin-top:12px;" onclick="goTo('platnosci')">Przejdź do rozliczeń</button>` : ''}
-      </div>` : '';})()}
+    </div>
 
-    ${dayAbsences.length>0 ? `<div class="card" style="background:rgba(230,57,70,0.08);border-color:rgba(230,57,70,0.35);">
-      ${dayAbsences.map(a=>`🚫 <b>${esc(a.instructorName)}</b> — nieobecny(a) ${a.allDay?'cały dzień':`${a.startTime}–${a.endTime}`}${a.reason?` <span style="color:var(--mist-dim);">(${esc(a.reason)})</span>`:''}`).join('<br>')}
-    </div>` : ''}
-
+    <div class="dv-sched">
     <div class="card">
       <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--mist-dim);margin-bottom:12px;">
         <span><span class="pay-toggle paid" style="pointer-events:none;">✓</span> zapłacone</span>
@@ -2190,7 +2243,25 @@ function renderDayViewPage(main, onlyInstructorId){
       ${renderDayScheduleGrid(calSelectedDate, onlyInstructorId)}
     </div>
 
-    ${renderDayNotesCard(calSelectedDate)}
+    </div>
+
+    <div class="dv-side">
+    <div class="dv-alerts">
+    ${(()=>{const od = dayLessons.filter(isOverdue);
+      return od.length>0 ? `<div class="card" style="background:rgba(230,57,70,0.09);border-color:rgba(230,57,70,0.4);">
+        <b style="color:var(--danger);font-family:var(--font-display);text-transform:uppercase;">⚠️ ${od.length} nieopłaconych zajęć po terminie — ${fmtMoney(od.reduce((s,l)=>s+lessonPrice(l),0))}</b>
+        <div style="margin-top:8px;font-size:13.5px;">${od.map(l=>`${l.time} <b>${esc(l.studentName)}</b> — ${fmtMoney(lessonPrice(l))} <span style="color:var(--mist-dim);">(${fmtOverdue(overdueMinutes(l))})</span>`).join('<br>')}</div>
+        ${currentUser.role==='operator' ? `<button class="btn btn-primary" style="margin-top:12px;" onclick="goTo('platnosci')">Przejdź do rozliczeń</button>` : ''}
+      </div>` : '';})()}
+
+    ${dayAbsences.length>0 ? `<div class="card" style="background:rgba(230,57,70,0.08);border-color:rgba(230,57,70,0.35);">
+      ${dayAbsences.map(a=>`🚫 <b>${esc(a.instructorName)}</b> — nieobecny(a) ${a.allDay?'cały dzień':`${a.startTime}–${a.endTime}`}${a.reason?` <span style="color:var(--mist-dim);">(${esc(a.reason)})</span>`:''}`).join('<br>')}
+    </div>` : ''}
+    </div>
+
+    <div class="dv-notes">${renderDayNotesCard(calSelectedDate)}</div>
+    </div>
+    </div>
   `;
 }
 window.dayViewShift = function(days){
@@ -2210,7 +2281,7 @@ function renderCalendarPage(main){
       <div><div class="page-sub">${currentUser.role==='operator'?'Wszystkie zajęcia':'Kalendarz wszystkich instruktorów'}</div><h1>Zapisy</h1></div>
       <button class="btn btn-gold" onclick="openWizard()">＋ Nowy zapis</button>
     </div>
-    <div class="grid grid-2" style="align-items:start;">
+    <div class="grid cal-layout" style="align-items:start;">
       <div class="card">
         <h3>${MONTHS[calMonth]} ${calYear}</h3>
         <div id="mini-cal"></div>
@@ -3166,6 +3237,7 @@ function renderMyStatsPage(main){
       <div class="stat"><div class="num">${sumHours(monthMine).toFixed(1)}h</div><div class="lbl">Godziny w miesiącu</div></div>
       <div class="stat c-lv5"><div class="num">${fmtMoney(earnings)}</div><div class="lbl">Zarobek w miesiącu</div></div>
     </div>
+    <div class="cols">
     ${renderPushCard()}
     <div class="card">
       <h3>Moja dostępność</h3>
@@ -3196,6 +3268,7 @@ function renderMyStatsPage(main){
       ${mine.slice(-15).reverse().map(l=>{const lv=levelMeta(l.level);return `<tr><td>${fmtDatePL(l.date)}</td><td>${l.time}</td><td>${esc(l.studentName)}</td>
       <td><span class="badge" style="background:${cssColor(lv.key)}22;color:${cssColor(lv.key)};">${lv.n}</span></td><td>${statusBadge(l.status)}</td><td>${fmtMoney(l.instructorPay)}</td></tr>`}).join('')}
       </tbody></table></div>`}
+    </div>
     </div>
   `;
 }
@@ -3252,6 +3325,7 @@ function renderRemindersPage(main){
       </div>
     </div>
 
+    <div class="cols">
     ${pending.length>0 ? `
     <div class="card">
       <h3>📩 Do wysłania (${pending.length})</h3>
@@ -3294,6 +3368,7 @@ function renderRemindersPage(main){
         <td><button class="icon-btn" onclick="setSmsOverride('${escAttr(l.id)}','force')">📩 Wyślij mimo to</button></td></tr>`).join('')}
       </tbody></table></div>
     </div>` : ''}
+    </div>
   `;
 }
 
@@ -3353,6 +3428,7 @@ function renderSettingsPage(main){
   main.innerHTML = `
     <div class="page-head"><div><div class="page-sub">Ceny, godziny pracy, integracje</div><h1>Ustawienia</h1></div></div>
 
+    <div class="cols">
     <div class="card">
       <h3>Godziny lekcyjne szkółki</h3>
       <div class="grid grid-2">
@@ -3507,6 +3583,7 @@ function renderSettingsPage(main){
       <div class="field"><label>Adres bramki SMS (URL Cloud Function)</label><input id="set-smsurl" value="${esc(settings.smsWebhookUrl||'')}" placeholder="https://europe-central2-twojprojekt.cloudfunctions.net/sendReminders"></div>
       <button class="btn btn-primary" onclick="saveSettings()">Zapisz ustawienia</button>
     </div>
+    </div>
   `;
   highlightDurationPreset();
 }
@@ -3605,8 +3682,8 @@ function slotAvailabilityAnyInstructor(dates){
 window.setPickOrder = function(order){
   wData.pickOrder = order;
   // przy zmianie kolejności czyścimy wybór, żeby nie zostawić niespójnej pary
-  if(order === 'time'){ wData.instructorId = null; wData.instructorName = null; }
-  else { wData.time = null; }
+  if(order === 'time'){ wData.instructorId = null; wData.instructorName = null; wData.times = (wData.times||[]).slice(0,1); wData.time = wData.times[0]||null; }
+  else { wData.time = null; wData.times = []; }
   renderWizardStep();
 };
 
@@ -3628,7 +3705,7 @@ window.openWizard = function(){
     dates:[],            // można zapisać ucznia na kilka dni za jednym razem
     instructorId: currentUser.role==='instructor' ? currentUser.uid : null,
     instructorName: currentUser.role==='instructor' ? currentUser.name : null,
-    time:null, perDay:false, timesByDate:{}, name:'', countryCode:'+48', phone:'', level:null,
+    time:null, times:[], runLen:1, customTime:'', customByDate:{}, perDay:false, timesByDate:{}, name:'', countryCode:'+48', phone:'', level:null,
     lessonType:'individual', groupSize:2, paymentStatus:'unpaid', notes:'',
     price: settings.basePrice, priceTouched:false
   };
@@ -3643,7 +3720,7 @@ window.openWizard = function(){
 window.openWizardAt = function(dateIso, time, uid, name){
   openWizard();
   wData.dates = [dateIso];
-  wData.time = time; wData.perDay = false; wData.timesByDate = {};
+  wData.time = time; wData.times = [time]; wData.perDay = false; wData.timesByDate = {};
   wData.instructorId = uid;
   wData.instructorName = name;
   const d = new Date(dateIso+'T12:00:00'); wCalMonth = d.getMonth(); wCalYear = d.getFullYear();
@@ -3679,7 +3756,7 @@ window.openWizardForStudent = function(name, phone){
     repeatFor: {name:last.studentName, phone:last.studentPhone},
     dates:[],
     instructorId, instructorName,
-    time:null, perDay:false, timesByDate:{},
+    time:null, times:[], runLen:1, customTime:'', customByDate:{}, perDay:false, timesByDate:{},
     name: last.studentName,
     countryCode,
     phone: digits,
@@ -3724,22 +3801,45 @@ function actionsHtml(nextEnabled, isLast){
 
 /* Tryb "różne godziny w różne dni" działa tylko przy więcej niż jednym dniu */
 function isPerDay(){ return !!wData.perDay && (wData.dates||[]).length > 1; }
-function timeFor(date){ return isPerDay() ? (wData.timesByDate[date] || null) : wData.time; }
+/* Godziny wybrane dla danego dnia — może być kilka (np. 9:00 i 10:00 z rzędu
+   albo 9:00 i 13:30). W trybie wspólnym te same godziny dotyczą każdego dnia. */
+function timesFor(date){ return [...(isPerDay() ? (wData.timesByDate[date]||[]) : (wData.times||[]))].sort(); }
 function allTimesChosen(){
   const dates = wData.dates || [];
-  return isPerDay() ? dates.length>0 && dates.every(d=>!!wData.timesByDate[d]) : !!wData.time;
+  return dates.length>0 && dates.every(d=>timesFor(d).length>0);
+}
+function bookingPairs(){
+  const out = [];
+  [...(wData.dates||[])].sort().forEach(d=>timesFor(d).forEach(t=>out.push({date:d, time:t})));
+  return out;
+}
+function syncTime(){ wData.time = (wData.times||[])[0] || null; }
+function slotCadence(){ return settings.lessonDuration + (settings.breakBetweenLessons||0); }
+/* Od godziny startTime bierze k kolejnych slotów z siatki (bez dziury, np. przerwy
+   obiadowej). Zwraca null, jeśli któryś jest zajęty albo nie przylega do poprzedniego. */
+function runFrom(list, startTime, k){
+  const i = list.findIndex(x=>x.time===startTime);
+  if(i<0 || k<=1) return [startTime];
+  const out = [];
+  for(let j=0;j<k;j++){
+    const e = list[i+j];
+    if(!e || e.freeDates.length===0) return null;
+    if(j>0 && e.minutes - list[i+j-1].minutes !== slotCadence()) return null;
+    out.push(e.time);
+  }
+  return out;
 }
 
 /* Termin wybrany w poprzednich krokach — widoczny przy wpisywaniu imienia i telefonu */
 function wizardInfoHtml(){
   const dates = [...(wData.dates||[])].sort();
-  if(dates.length===0 && !wData.time && !wData.instructorName) return '';
+  if(dates.length===0 && !(wData.times||[]).length && !wData.instructorName) return '';
   const instr = instructors.find(i=>i.uid===wData.instructorId);
   return `<div class="wizard-info" aria-label="Wybrany termin">
     ${isPerDay()
-      ? `<div class="wi-row"><span class="wi-k">Dni i godziny</span><span class="wi-v">${dates.map(d=>`${fmtDatePL(d)} · ${esc(timeFor(d)||'—')}`).join('<br>')}</span></div>`
+      ? `<div class="wi-row"><span class="wi-k">Dni i godziny</span><span class="wi-v">${dates.map(d=>`${fmtDatePL(d)} · ${esc(timesFor(d).join(', ')||'—')}`).join('<br>')}</span></div>`
       : `<div class="wi-row"><span class="wi-k">${dates.length>1?`Dni (${dates.length})`:'Data'}</span><span class="wi-v">${dates.map(fmtDatePL).join('<br>')}</span></div>
-    <div class="wi-row"><span class="wi-k">Godzina</span><span class="wi-v">${esc(wData.time||'—')}</span></div>`}
+    <div class="wi-row"><span class="wi-k">${(wData.times||[]).length>1?'Godziny':'Godzina'}</span><span class="wi-v">${esc((wData.times||[]).join(', ')||'—')}</span></div>`}
     <div class="wi-row"><span class="wi-k">Instruktor</span><span class="wi-v">${esc(wData.instructorName||'—')}${instr?` ${disciplineIcons(instr)}`:''}</span></div>
   </div>`;
 }
@@ -3818,7 +3918,7 @@ function renderWizardStep(){
           const badge = showFreeInstructors
             ? `<span class="slot-count">${s.freeInstructors} wolnych</span>`
             : (multi ? `<span class="slot-count">${freeCount}/${dates.length}</span>` : '');
-          return `<div class="slot ${noneFree?'taken':''} ${partial?'partial':''} ${wData.time===s.time?'selected':''}" onclick="pickTime('${s.time}')" title="${esc(title)}">
+          return `<div class="slot ${noneFree?'taken':''} ${partial?'partial':''} ${(wData.times||[]).includes(s.time)?'selected':''}" onclick="pickTime('${s.time}')" title="${esc(title)}">
             ${s.time}${badge}
           </div>`;
         }).join('')}
@@ -3843,21 +3943,21 @@ function renderWizardStep(){
     /* ---------- osobna godzina dla każdego dnia (jeden instruktor) ---------- */
     const perDayHtml = ()=>{
       if(!wData.instructorId) return `<div style="margin-top:6px;font-size:13px;color:var(--mist-dim);">Wybierz instruktora, a potem godzinę dla każdego dnia.</div>`;
-      return dates.map(d=>{
+      return '<div class="perday-grid">' + dates.map(d=>{
         const dow = new Date(d+'T12:00:00').getDay();
         const list = slotAvailability(wData.instructorId, [d]);
-        const chosen = wData.timesByDate[d];
-        const custom = chosen && !list.some(x=>x.time===chosen) ? chosen : '';
+        const chosen = wData.timesByDate[d] || [];
+        const custom = (wData.customByDate||{})[d] || '';
         return `<div class="optional-block" style="margin-top:14px;padding-top:12px;">
           <div class="opt-label" style="display:flex;justify-content:space-between;">
             <span>${esc(DOW[dow])} ${fmtDatePL(d)}</span>
-            <span style="color:${chosen?'var(--ok)':'var(--warn)'};">${chosen ? '✓ '+esc(chosen) : 'wybierz godzinę'}</span>
+            <span style="color:${chosen.length?'var(--ok)':'var(--warn)'};">${chosen.length ? '✓ '+esc([...chosen].sort().join(', ')) : 'wybierz godzinę'}</span>
           </div>
           <div class="slot-grid">
             ${list.map(x=>{
               const none = x.freeDates.length===0;
               const title = x.blockedDates.map(b=>b.reason).join(', ');
-              return `<div class="slot ${none?'taken':''} ${chosen===x.time?'selected':''}" onclick="pickTimeFor('${d}','${x.time}')" title="${esc(title)}">${x.time}</div>`;
+              return `<div class="slot ${none?'taken':''} ${chosen.includes(x.time)?'selected':''}" onclick="pickTimeFor('${d}','${x.time}')" title="${esc(title)}">${x.time}</div>`;
             }).join('')}
           </div>
           <div style="display:flex;gap:10px;align-items:center;margin-top:8px;">
@@ -3865,8 +3965,21 @@ function renderWizardStep(){
             <input type="time" style="flex:1;padding:8px 10px;background:var(--navy-2);border:1.5px solid var(--navy-3);border-radius:9px;color:var(--snow);font-size:14px;" value="${esc(custom)}" oninput="onCustomTimeForDay('${d}', this)">
           </div>
         </div>`;
-      }).join('');
+      }).join('') + '</div>';
     };
+
+    // ile kolejnych godzin zaznaczyć jednym dotknięciem (poza trybem "najpierw godzina")
+    const showRun = perDay || order !== 'time';
+    const runHtml = showRun ? `
+      <div style="margin-bottom:14px;">
+        <div class="opt-label">Ile godzin z rzędu zapisać jednym dotknięciem</div>
+        <div class="choice-row" style="margin-bottom:6px;">
+          ${[1,2,3,4].map(n=>`<div class="choice-chip ${(wData.runLen||1)===n?'selected':''}" style="min-width:64px;flex:0 1 auto;" onclick="setRunLen(${n})">${n} godz.</div>`).join('')}
+        </div>
+        <div style="font-size:12px;color:var(--mist-dim);line-height:1.5;">Dotknij godziny — zaznaczy się tyle kolejnych, ile wybrano. Możesz też dotknąć kilku godzin o różnych porach (np. 9:00 i 13:30). Ponowne dotknięcie odznacza godzinę.</div>
+      </div>` : '';
+    const pickedLine = (!perDay && (wData.times||[]).length>0)
+      ? `<div style="margin:10px 0 0;font-size:13.5px;">Wybrane godziny: <b>${esc([...wData.times].sort().join(', '))}</b>${multi?' (każdego dnia)':''}</div>` : '';
 
     let mainHtml;
     if(perDay){
@@ -3889,18 +4002,20 @@ function renderWizardStep(){
         ${slotGridHtml(slots, false)}`;
     }
 
-    body.innerHTML = `<div class="wizard-panel">
+    body.innerHTML = `<div class="wizard-panel ${perDay?'wide':''}">
       <h2>Godzina zajęć</h2>
       <div class="wizard-hint">${esc(headerDates)}</div>
       ${perDayToggle}
       ${orderToggle}
+      ${runHtml}
       ${mainHtml}
+      ${pickedLine}
       ${hintParts.length ? `<div style="margin-top:10px;font-size:12.5px;color:var(--mist-dim);">${hintParts.join(' · ')}</div>` : ''}
 
       ${perDay ? '' : `<div class="optional-block">
         <div class="opt-label">Inna godzina (sytuacja nadzwyczajna)</div>
         <div style="display:flex;gap:10px;align-items:center;">
-          <input type="time" id="w-custom-time" style="flex:1;padding:12px 14px;background:var(--navy-2);border:1.5px solid var(--navy-3);border-radius:9px;color:var(--snow);font-size:15px;" value="${wData.time&&!slots.some(s=>s.time===wData.time)?wData.time:''}" oninput="onCustomTimeInput(this)">
+          <input type="time" id="w-custom-time" style="flex:1;padding:12px 14px;background:var(--navy-2);border:1.5px solid var(--navy-3);border-radius:9px;color:var(--snow);font-size:15px;" value="${esc(wData.customTime||'')}" oninput="onCustomTimeInput(this)">
         </div>
         <div style="color:var(--mist-dim);font-size:12px;margin-top:6px;">Pomija siatkę godzin powyżej — użyj tylko w wyjątkowych przypadkach.</div>
       </div>`}
@@ -3969,8 +4084,8 @@ function renderWizardStep(){
         <div class="summary-list">
           <div class="summary-row"><span class="k">${wData.dates.length>1?`Dni (${wData.dates.length})`:'Data'}</span><span class="v">${[...wData.dates].sort().map(fmtDatePL).join('<br>')}</span></div>
           ${isPerDay()
-            ? `<div class="summary-row"><span class="k">Godziny</span><span class="v">${[...wData.dates].sort().map(d=>`${fmtDatePL(d)} · ${esc(timeFor(d))}`).join('<br>')}</span></div>`
-            : `<div class="summary-row"><span class="k">Godzina</span><span class="v">${esc(wData.time)}${wData.dates.length>1?' (każdego dnia)':''}</span></div>`}
+            ? `<div class="summary-row"><span class="k">Godziny</span><span class="v">${[...wData.dates].sort().map(d=>`${fmtDatePL(d)} · ${esc(timesFor(d).join(', '))}`).join('<br>')}</span></div>`
+            : `<div class="summary-row"><span class="k">${(wData.times||[]).length>1?'Godziny':'Godzina'}</span><span class="v">${esc([...(wData.times||[])].sort().join(', '))}${wData.dates.length>1?' (każdego dnia)':''}</span></div>`}
           <div class="summary-row"><span class="k">Instruktor</span><span class="v">${esc(wData.instructorName)}</span></div>
           <div class="summary-row"><span class="k">Uczeń</span><span class="v">${esc(wData.name)}</span></div>
           <div class="summary-row"><span class="k">Telefon</span><span class="v">${esc(wData.countryCode)} ${esc(wData.phone)}</span></div>
@@ -3989,7 +4104,7 @@ function renderWizardStep(){
             <input type="number" min="2" max="12" value="${wData.groupSize}" oninput="onGroupSizeInput(this)">
           </div>` : ''}
 
-          <div class="opt-label">Cena za jedne zajęcia${wData.dates.length>1?` (łącznie za ${wData.dates.length} dni: ${fmtMoney(wData.price*wData.dates.length)})`:''}</div>
+          <div class="opt-label">Cena za jedne zajęcia${bookingPairs().length>1?` (łącznie za ${bookingPairs().length} zajęć: ${fmtMoney(wData.price*bookingPairs().length)})`:''}</div>
           <div class="field" style="margin-bottom:6px;">
             <div style="position:relative;">
               <input type="number" min="0" step="5" id="w-price-input" value="${wData.price}" style="padding-right:52px;" oninput="onPriceInput(this)">
@@ -4054,41 +4169,80 @@ window.pickDate = function(iso){
   const i = wData.dates.indexOf(iso);
   if(i>=0){ wData.dates.splice(i,1); delete wData.timesByDate[iso]; }
   else wData.dates.push(iso);
-  // godzina wspólna zależy od zestawu dni; godziny ustawione osobno dla dni zostają
-  wData.time = null;
+  // godziny wspólne zależą od zestawu dni; godziny ustawione osobno dla dni zostają
+  wData.time = null; wData.times = []; wData.customTime = '';
   renderWizardStep();
 };
-window.clearWizardDates = function(){ wData.dates = []; wData.time = null; wData.timesByDate = {}; renderWizardStep(); };
+window.clearWizardDates = function(){ wData.dates = []; wData.time = null; wData.times = []; wData.customTime = ''; wData.timesByDate = {}; wData.customByDate = {}; renderWizardStep(); };
 window.pickInstructor = function(uid, name){
   wData.instructorId = uid; wData.instructorName = name;
   // w trybie "najpierw godzina" wybrana pora zostaje; w trybie "najpierw
   // instruktor" czyścimy godzinę, bo dostępność zależy od instruktora
-  if((wData.pickOrder||'instructor') !== 'time') wData.time = null;
-  wData.timesByDate = {}; // dostępność godzin zależy od instruktora
+  if((wData.pickOrder||'instructor') !== 'time'){ wData.time = null; wData.times = []; wData.customTime = ''; }
+  wData.timesByDate = {}; wData.customByDate = {}; // dostępność godzin zależy od instruktora
   renderWizardStep();
 };
-window.pickTime = function(t){ wData.time = t; renderWizardStep(); };
+window.setRunLen = function(n){ wData.runLen = n; renderWizardStep(); };
+window.pickTime = function(t){
+  // "najpierw godzina": jedna godzina i potem wybór instruktora
+  if(!isPerDay() && (wData.pickOrder||'instructor')==='time'){
+    wData.times = [t]; syncTime(); renderWizardStep(); return;
+  }
+  const cur = new Set(wData.times||[]);
+  if(cur.has(t)){
+    cur.delete(t);
+  }else{
+    const run = runFrom(slotAvailability(wData.instructorId, [...wData.dates].sort()), t, wData.runLen||1);
+    if(!run){ showToast(`Nie ma ${wData.runLen} wolnych godzin z rzędu od ${t}`); return; }
+    run.forEach(x=>cur.add(x));
+  }
+  wData.times = [...cur].sort(); syncTime();
+  renderWizardStep();
+};
 window.setPerDay = function(on){
   wData.perDay = on;
-  if(on){ wData.pickOrder = 'instructor'; wData.time = null; }
-  else wData.timesByDate = {};
+  if(on){
+    wData.pickOrder = 'instructor';
+    // zaczynamy od godzin już wybranych dla wszystkich dni — można je potem różnicować
+    wData.timesByDate = {};
+    (wData.dates||[]).forEach(d=>{ if((wData.times||[]).length) wData.timesByDate[d] = [...wData.times]; });
+    wData.customByDate = {};
+  }else{
+    wData.timesByDate = {}; wData.customByDate = {};
+  }
   renderWizardStep();
 };
 window.pickTimeFor = function(date, t){
-  if(wData.timesByDate[date]===t) delete wData.timesByDate[date]; // drugie dotknięcie odznacza
-  else wData.timesByDate[date] = t;
+  const cur = new Set(wData.timesByDate[date] || []);
+  if(cur.has(t)){
+    cur.delete(t);
+  }else{
+    const run = runFrom(slotAvailability(wData.instructorId, [date]), t, wData.runLen||1);
+    if(!run){ showToast(`Nie ma ${wData.runLen} wolnych godzin z rzędu od ${t}`); return; }
+    run.forEach(x=>cur.add(x));
+  }
+  if(cur.size) wData.timesByDate[date] = [...cur].sort(); else delete wData.timesByDate[date];
   renderWizardStep();
 };
+/* Własna godzina: zastępuje poprzednio wpisaną własną, nie dokłada kolejnej przy każdym znaku */
 window.onCustomTimeForDay = function(date, el){
-  if(el.value) wData.timesByDate[date] = el.value; else delete wData.timesByDate[date];
+  const list = new Set(wData.timesByDate[date] || []);
+  const old = wData.customByDate[date];
+  if(old) list.delete(old);
+  if(el.value){ list.add(el.value); wData.customByDate[date] = el.value; } else delete wData.customByDate[date];
+  if(list.size) wData.timesByDate[date] = [...list].sort(); else delete wData.timesByDate[date];
   const btn = document.getElementById('wizard-next-btn');
   if(btn) btn.disabled = !(allTimesChosen() && wData.instructorId);
 };
 window.onCustomTimeInput = function(el){
-  wData.time = el.value || null;
+  const isTimeFirst = (wData.pickOrder||'instructor')==='time';
+  const list = new Set(isTimeFirst ? [] : (wData.times||[]));
+  if(wData.customTime) list.delete(wData.customTime);
+  if(el.value){ list.add(el.value); wData.customTime = el.value; } else wData.customTime = '';
+  wData.times = [...list].sort(); syncTime();
   const btn = document.getElementById('wizard-next-btn');
-  if(btn) btn.disabled = !(wData.time && wData.instructorId);
-  document.querySelectorAll('#w-slots .slot').forEach(s=>s.classList.remove('selected'));
+  if(btn) btn.disabled = !(allTimesChosen() && wData.instructorId);
+  document.querySelectorAll('#w-slots .slot').forEach(s=>s.classList.toggle('selected', wData.times.includes(s.firstChild?.textContent?.trim())));
 };
 window.pickLevel = function(n){ wData.level = n; renderWizardStep(); };
 
@@ -4224,41 +4378,64 @@ async function createLessonAtomic(data){
 
 window.submitWizard = async function(){
   const btn = document.getElementById('wizard-next-btn');
-  const dates = [...wData.dates].sort();
+  const pairs = bookingPairs();
+  if(pairs.length === 0){ showToast('Wybierz co najmniej jedną godzinę'); return; }
+  const label = pr => `${fmtDatePL(pr.date)} ${pr.time}`;
+
+  // godziny wybrane tego samego dnia nie mogą nakładać się na siebie
+  for(const d of [...wData.dates]){
+    const ts = timesFor(d).map(toMinutes).sort((a,b)=>a-b);
+    for(let i=1;i<ts.length;i++){
+      if(ts[i]-ts[i-1] < settings.lessonDuration){
+        showToast(`Godziny ${fromMinutes(ts[i-1])} i ${fromMinutes(ts[i])} (${fmtDatePL(d)}) nakładają się`);
+        return;
+      }
+    }
+  }
 
   // Sprawdzenia tuż przed zapisem — dane mogły się zmienić, odkąd wybrano
-  // godzinę (ktoś inny mógł w tym czasie zająć termin albo instruktor mógł
-  // zgłosić nieobecność). Przy zapisie na kilka dni sprawdzamy każdy z nich.
-  const clashes = [], absentDays = [];
-  dates.forEach(d=>{
-    const c = overlappingLesson(lessons.filter(l=>l.date===d), wData.instructorId, timeFor(d));
-    if(c) clashes.push({date:d, name:c.studentName});
-    else if(absenceBlocksMinutes(wData.instructorId, d, toMinutes(timeFor(d)))) absentDays.push(d);
+  // godziny (ktoś inny mógł w tym czasie zająć termin albo instruktor mógł
+  // zgłosić nieobecność). Sprawdzamy każdą parę dzień + godzina.
+  const clashes = [], absentPairs = [];
+  pairs.forEach(pr=>{
+    const c = overlappingLesson(lessons.filter(l=>l.date===pr.date), wData.instructorId, pr.time);
+    if(c) clashes.push({...pr, name:c.studentName});
+    else if(absenceBlocksMinutes(wData.instructorId, pr.date, toMinutes(pr.time))) absentPairs.push(pr);
   });
 
-  if(clashes.length === dates.length){
-    showToast('Ten termin jest zajęty we wszystkich wybranych dniach');
+  if(clashes.length === pairs.length){
+    showToast('Wybrane terminy są już zajęte');
     return;
   }
-  let toBook = dates.filter(d=>!clashes.some(c=>c.date===d));
+  let toBook = pairs.filter(pr=>!clashes.some(c=>c.date===pr.date && c.time===pr.time));
   if(clashes.length > 0){
     const ok = confirm(
-      `W ${clashes.length} z ${dates.length} dni ${isPerDay()?'wybrana godzina':'ten termin'} jest już zajęta/y:\n` +
-      clashes.map(c=>`• ${fmtDatePL(c.date)} — ${c.name}`).join('\n') +
-      `\n\nZapisać ucznia na pozostałe ${toBook.length} dni?`);
+      `${clashes.length} z ${pairs.length} terminów jest już zajętych:\n` +
+      clashes.map(c=>`• ${label(c)} — ${c.name}`).join('\n') +
+      `\n\nZapisać ucznia na pozostałe ${toBook.length}?`);
     if(!ok) return;
   }
-  if(absentDays.length > 0){
+  if(absentPairs.length > 0){
     const ok = confirm(
-      `Instruktor ma zgłoszoną nieobecność w ${absentDays.length} z tych dni:\n` +
-      absentDays.map(fmtDatePL).join('\n') + `\n\nZapisać mimo to?`);
-    if(!ok) toBook = toBook.filter(d=>!absentDays.includes(d));
+      `Instruktor ma zgłoszoną nieobecność w terminach:\n` +
+      absentPairs.map(label).join('\n') + `\n\nZapisać mimo to?`);
+    if(!ok) toBook = toBook.filter(pr=>!absentPairs.some(a=>a.date===pr.date && a.time===pr.time));
   }
-  if(toBook.length === 0){ showToast('Nie wybrano żadnego dnia do zapisania'); return; }
+  if(toBook.length === 0){ showToast('Nie wybrano żadnego terminu do zapisania'); return; }
+
+  // dzienny limit godzin instruktora (kilka godzin jednego dnia łatwo go przekracza)
+  const instructor = instructors.find(i=>i.uid===wData.instructorId) || (currentUser.role==='instructor' ? currentUser : null);
+  if(instructor?.maxHoursPerDay){
+    const maxSlots = Math.floor(instructor.maxHoursPerDay*60/settings.lessonDuration);
+    const over = [...new Set(toBook.map(pr=>pr.date))].filter(d=>{
+      const existing = lessons.filter(l=>l.date===d && l.instructorId===wData.instructorId && l.status!=='cancelled').length;
+      return existing + toBook.filter(pr=>pr.date===d).length > maxSlots;
+    });
+    if(over.length>0 && !confirm(`Instruktor przekroczy dzienny limit (${instructor.maxHoursPerDay} h) w dniach:\n${over.map(fmtDatePL).join('\n')}\n\nZapisać mimo to?`)) return;
+  }
 
   btn.disabled = true; btn.textContent = 'Zapisywanie…';
   try{
-    const instructor = instructors.find(i=>i.uid===wData.instructorId) || (currentUser.role==='instructor' ? currentUser : null);
     const instructorPay = instructor ? (instructor.pricePerLesson ?? settings.instructorRateDefault) : settings.instructorRateDefault;
     const base = {
       durationMinutes: settings.lessonDuration,
@@ -4278,20 +4455,22 @@ window.submitWizard = async function(){
       createdBy: currentUser.uid,
       createdAt: serverTimestamp()
     };
-    // każdy dzień to osobne zajęcia — można je potem edytować niezależnie
-    const results = await Promise.allSettled(toBook.map(date => createLessonAtomic({...base, date, time: timeFor(date)})));
-    const okDates = toBook.filter((d,i)=>results[i].status==='fulfilled');
-    if(okDates.length===0){
+    // każda godzina to osobne zajęcia — można je potem edytować niezależnie
+    const results = await Promise.allSettled(toBook.map(pr => createLessonAtomic({...base, date: pr.date, time: pr.time})));
+    const okPairs = toBook.filter((pr,i)=>results[i].status==='fulfilled');
+    if(okPairs.length===0){
       const why = results[0].reason;
       throw new Error(why?.code==='slot-taken' ? 'ten termin przed chwilą zajął ktoś inny' : (why?.message||'nieznany błąd'));
     }
-    toBook = okDates;
-    const lost = results.length - okDates.length;
+    const lost = results.length - okPairs.length;
+    const dayCount = new Set(okPairs.map(pr=>pr.date)).size;
     showToast(lost>0
-      ? `Zapisano ${okDates.length} z ${results.length} dni — resztę terminów zajął ktoś inny`
-      : (okDates.length===1 ? 'Uczeń zapisany na zajęcia' : `Uczeń zapisany na ${okDates.length} dni`));
+      ? `Zapisano ${okPairs.length} z ${results.length} zajęć — resztę terminów zajął ktoś inny`
+      : (okPairs.length===1 ? 'Uczeń zapisany na zajęcia'
+         : `Uczeń zapisany na ${okPairs.length} zajęć${dayCount>1?` (${dayCount} dni)`:''}`));
+    toBook = okPairs;
     closeWizard();
-    calSelectedDate = toBook[0];
+    calSelectedDate = toBook[0].date;
     currentPage = 'grafik';
     renderPage();
   }catch(e){
