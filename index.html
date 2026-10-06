@@ -459,6 +459,24 @@ tbody tr:hover{background:rgba(255,255,255,0.035);}
 .level-card:focus-visible,.cal-cell:focus-visible,.date-chip:focus-visible,.big-cal-cell:focus-visible,
 .empty-slot:focus-visible,button:focus-visible{outline:2px solid var(--lv5);outline-offset:2px;}
 .empty-slot{cursor:pointer;}
+.cell-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;}
+.edit-btn{background:var(--navy-3);border:1.5px solid var(--navy-4);color:var(--snow);border-radius:7px;padding:3px 9px;font-size:14px;line-height:1.2;}
+.edit-btn:hover{background:var(--ice);border-color:var(--ice);}
+@media (pointer:coarse){.edit-btn{min-width:44px;min-height:44px;font-size:17px;}}
+.lesson-link{cursor:pointer;border-bottom:1px dotted var(--mist-dim);}
+#lesson-edit-modal-content{max-width:540px;}
+.edit-block{background:var(--navy);border:1px solid var(--navy-3);border-radius:12px;padding:14px;margin-bottom:14px;}
+.edit-summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:rgba(242,169,0,0.12);border:1px solid rgba(242,169,0,0.45);border-radius:10px;padding:9px 12px;margin-bottom:14px;font-size:13.5px;}
+.edit-summary .was{color:var(--mist-dim);text-decoration:line-through;}
+.edit-warn{margin-top:10px;padding:8px 12px;background:rgba(230,57,70,0.12);border:1px solid rgba(230,57,70,0.4);border-radius:9px;color:#ff8d95;font-size:13px;}
+details.edit-more{margin-bottom:14px;border:1px solid var(--navy-3);border-radius:12px;padding:0 14px;}
+details.edit-more>summary{cursor:pointer;padding:13px 0;font-weight:700;font-size:14px;color:var(--mist);list-style:none;}
+details.edit-more>summary::-webkit-details-marker{display:none;}
+details.edit-more>summary::before{content:'▸ ';}
+details.edit-more[open]>summary::before{content:'▾ ';}
+details.edit-more[open]{padding-bottom:6px;}
+/* opis ucznia pod imieniem w grafiku instruktora */
+.lesson-desc{margin-top:6px;padding:6px 9px;background:rgba(155,93,229,0.12);border-left:3px solid #9B5DE5;border-radius:6px;font-size:12.5px;line-height:1.45;color:var(--mist);white-space:pre-wrap;word-break:break-word;max-width:560px;}
 .empty-slot:hover{background:rgba(74,144,217,0.12);color:var(--ice);}
 #update-banner{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:300;background:var(--navy-3);border:1px solid var(--lv5);color:#fff;padding:12px 16px;border-radius:12px;display:flex;gap:12px;align-items:center;box-shadow:var(--shadow);font-size:14px;font-weight:600;}
 .toast{
@@ -1128,6 +1146,19 @@ if ('serviceWorker' in navigator) {
            • powiadomienie push o kolejce z własną godziną i wyborem, czy
              dotyczy zajęć jutrzejszych czy dzisiejszych (funkcja
              notifySmsQueue w functions-example.js)
+   1.28.0 — prostsza zmiana godziny ucznia: w grafiku przy każdych zajęciach
+           jest widoczny przycisk ✎; okno edycji zaczyna się od "Dzień"
+           (strzałki, Dziś/Jutro) i siatki wolnych godzin instruktora — jedno
+           dotknięcie zmienia godzinę, a u góry widać "było → będzie".
+           Cena, płatność, status i uwagi są w zwijanym "Więcej opcji".
+           Przycisk "✎ Zmień" jest też w historii ucznia (nadchodzące zajęcia
+           podświetlone). Po przełożeniu zajęć znacznik wysłanego SMS-a jest
+           zerowany
+   1.27.0 — numer telefonu można pominąć przy zapisie ("Pomiń numer telefonu"),
+           a dla znanego kursanta wystarczy dotknąć "Użyj numeru…". Zajęcia bez
+           numeru nie trafiają do kolejki SMS; w listach widać "bez numeru"
+   1.26.1 — w zakładce "Mój grafik" opis ucznia (jeśli istnieje) wyświetla się
+           pod jego imieniem, bez otwierania historii
    1.26.0 — kilka godzin dla jednego ucznia: w kroku "Godzina zajęć" można
            zaznaczyć kilka godzin tego samego dnia — dwie z rzędu (wybierasz
            "Ile godzin z rzędu" i dotykasz pierwszej) albo dowolne o różnych
@@ -1164,7 +1195,7 @@ if ('serviceWorker' in navigator) {
            • przerysowanie z bazy nie kasuje wpisywanej notatki/ustawień
            • większe cele dotykowe, obsługa klawiatury, zoom niezablokowany
 ===================================================================== */
-const APP_VERSION = '1.26.0';
+const APP_VERSION = '1.28.0';
 document.querySelectorAll('.app-version').forEach(el => el.textContent = 'v' + APP_VERSION);
 
 const LEVELS = [
@@ -1227,6 +1258,8 @@ function escAttr(s){
   return esc(js);
 }
 function pad(n){return String(n).padStart(2,'0');}
+/* Numer telefonu można pominąć przy zapisie — wtedy w widokach pokazujemy "bez numeru" */
+function phoneLabel(p){ return p ? esc(p) : '<span style="color:var(--mist-dim);font-style:italic;">bez numeru</span>'; }
 function toMinutes(hhmm){ const [h,m] = hhmm.split(':').map(Number); return h*60+(m||0); }
 function fromMinutes(min){ return `${pad(Math.floor(min/60))}:${pad(min%60)}`; }
 
@@ -1394,6 +1427,7 @@ function lessonCreatedMs(l){
 /* Zwraca {send:bool, reason:string} — powód pokazujemy operatorowi, żeby
    wiedział, dlaczego dane zajęcia dostają albo nie dostają SMS-a. */
 function smsDecision(l){
+  if(!l.studentPhone)           return {send:false, reason:'brak numeru telefonu'};
   if(l.smsOverride === 'skip')  return {send:false, reason:'wyłączone ręcznie'};
   if(l.smsOverride === 'force') return {send:true,  reason:'włączone ręcznie'};
   if(l.status === 'cancelled')  return {send:false, reason:'zajęcia odwołane'};
@@ -1677,6 +1711,7 @@ function subscribeStudents(){
     studentNotes = {};
     qs.forEach(d=>studentNotes[d.id] = d.data());
     if(currentPage==='uczniowie') renderStudentsList();
+    else if(currentPage==='mojgrafik') safeRerender(); // opisy widać w grafiku instruktora
   }, (err)=>showToast('Błąd połączenia z bazą (opisy uczniów)'));
 }
 function subscribeAbsences(){
@@ -2238,7 +2273,7 @@ function renderDayViewPage(main, onlyInstructorId){
         <span><span class="pay-toggle paid" style="pointer-events:none;">✓</span> zapłacone</span>
         <span><span class="pay-toggle" style="pointer-events:none;">zł</span> do zapłaty — dotknij, aby zmienić</span>
         <span>🚫 nieobecność</span> <span>☕ przerwa</span>
-        <span>Dotknij imienia ucznia, aby edytować zajęcia</span>
+        <span>Dotknij ucznia lub ✎, aby zmienić godzinę / termin</span>
       </div>
       ${renderDayScheduleGrid(calSelectedDate, onlyInstructorId)}
     </div>
@@ -2348,12 +2383,17 @@ function renderDayScheduleGrid(dateIso, onlyInstructorId){
       if(lesson){
         const lv = levelMeta(lesson.level);
         const canManage = currentUser.role==='operator' || currentUser.canManageAll || lesson.instructorId===currentUser.uid;
+        // w prywatnym grafiku instruktora od razu widać opis ucznia — bez otwierania historii
+        const studentDesc = onlyInstructorId
+          ? (studentNotes[studentDocId(studentKey(lesson.studentName, lesson.studentPhone))]?.notes || '').trim()
+          : '';
         html += `<td>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-            <span ${canManage?`onclick="openLessonEdit('${escAttr(lesson.id)}')" style="cursor:pointer;"`:''}><span class="dot" style="background:${cssColor(lv.key)}"></span> <b style="font-size:13px;">${esc(lesson.studentName)}</b>${lesson.lessonType==='group'?` 👥${lesson.groupSize||2}`:''}${
+            <span ${canManage?`class="lesson-link" onclick="openLessonEdit('${escAttr(lesson.id)}')" title="Zmień termin lub godzinę"`:''}><span class="dot" style="background:${cssColor(lv.key)}"></span> <b style="font-size:13px;">${esc(lesson.studentName)}</b>${lesson.lessonType==='group'?` 👥${lesson.groupSize||2}`:''}${
   smsDecision(lesson).send ? `<span title="${lesson.reminderSent?'SMS wysłany':'Dostanie SMS: '+esc(smsDecision(lesson).reason)}" style="margin-left:4px;font-size:11px;">${lesson.reminderSent?'✅':'📩'}</span>` : ''}</span>
-            ${canManage ? `<button class="pay-toggle ${lesson.paymentStatus==='paid'?'paid':''} ${isOverdue(lesson)?'overdue':''}" onclick="toggleLessonPayment('${escAttr(lesson.id)}')" title="${lesson.paymentStatus==='paid'?`Zapłacono${lesson.paymentMethod?' ('+(PAYMENT_METHODS[lesson.paymentMethod]||'')+')':''} — dotknij, aby cofnąć`:isOverdue(lesson)?`Zaległość od ${fmtOverdue(overdueMinutes(lesson))} — dotknij, aby rozliczyć`:'Do zapłaty — dotknij, aby oznaczyć jako zapłacone'}">${lesson.paymentStatus==='paid'?'✓':'zł'}</button>` : paymentBadge(lesson.paymentStatus)}
+            <span class="cell-actions">${canManage ? `<button class="edit-btn" onclick="openLessonEdit('${escAttr(lesson.id)}')" title="Zmień termin lub godzinę" aria-label="Zmień termin lub godzinę">✎</button>` : ''}${canManage ? `<button class="pay-toggle ${lesson.paymentStatus==='paid'?'paid':''} ${isOverdue(lesson)?'overdue':''}" onclick="toggleLessonPayment('${escAttr(lesson.id)}')" title="${lesson.paymentStatus==='paid'?`Zapłacono${lesson.paymentMethod?' ('+(PAYMENT_METHODS[lesson.paymentMethod]||'')+')':''} — dotknij, aby cofnąć`:isOverdue(lesson)?`Zaległość od ${fmtOverdue(overdueMinutes(lesson))} — dotknij, aby rozliczyć`:'Do zapłaty — dotknij, aby oznaczyć jako zapłacone'}">${lesson.paymentStatus==='paid'?'✓':'zł'}</button>` : paymentBadge(lesson.paymentStatus)}</span>
           </div>
+          ${studentDesc ? `<div class="lesson-desc" title="Opis ucznia">📝 ${esc(studentDesc)}</div>` : ''}
         </td>`;
       }else{
         const absentAll = isAllDayAbsent(ins.uid, dateIso);
@@ -2446,6 +2486,7 @@ window.openLessonEdit = function(id){
   pendingEditPayment = l ? l.paymentStatus : 'unpaid';
   // świeży stan — bez pozostałości po poprzednio edytowanych zajęciach
   editDraft = {
+    date: l?.date, time: l?.time, instructorId: l?.instructorId, instructorName: l?.instructorName, moreOpen: false,
     lessonType: l?.lessonType || 'individual',
     groupSize: l?.groupSize && l.groupSize>1 ? l.groupSize : 2,
     price: l?.clientPrice ?? settings.basePrice,
@@ -2461,75 +2502,135 @@ function renderLessonEditModal(){
   const content = document.getElementById('lesson-edit-modal-content');
   if(!l){ content.innerHTML = ''; return; }
   const canManage = currentUser.role==='operator' || currentUser.canManageAll || l.instructorId===currentUser.uid;
+  const d = editDraft;
+  const dow = new Date(d.date+'T12:00:00').getDay();
+  const changed = d.date!==l.date || d.time!==l.time || d.instructorId!==l.instructorId;
+  const fmtWhen = (date,time,name)=>`${esc(DOW[new Date(date+'T12:00:00').getDay()])} ${fmtDatePL(date)} · ${esc(time)} · ${esc(name)}`;
+
+  // siatka godzin wybranego instruktora w wybranym dniu (zajęcia, które edytujemy, nie blokują same siebie)
+  let slotList = slotAvailability(d.instructorId, [d.date], editingLessonId);
+  if(d.time && !slotList.some(x=>x.time===d.time)){
+    slotList = [...slotList, {time:d.time, minutes:toMinutes(d.time), freeDates:[d.date], blockedDates:[]}].sort((a,b)=>a.minutes-b.minutes);
+  }
+  const custom = d.time && !slotAvailability(d.instructorId, [d.date], editingLessonId).some(x=>x.time===d.time) ? d.time : '';
+
+  // ostrzeżenie o kolizji / nieobecności dla wybranego terminu
+  const clash = d.time ? overlappingLesson(lessons.filter(x=>x.date===d.date), d.instructorId, d.time, editingLessonId) : null;
+  const absent = d.time && absenceBlocksMinutes(d.instructorId, d.date, toMinutes(d.time));
+  const warn = clash ? `⚠️ O tej porze ${esc(d.instructorName)} ma już zajęcia (${esc(clash.studentName)}).`
+             : absent ? `⚠️ ${esc(d.instructorName)} ma wtedy zgłoszoną nieobecność.` : '';
+
   content.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
-      <div><h3 style="font-size:20px;">${esc(l.studentName)}</h3><div style="color:var(--mist-dim);font-size:13px;">${esc(l.studentPhone)}</div></div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">
+      <div><h3 style="font-size:20px;">${esc(l.studentName)}</h3><div style="color:var(--mist-dim);font-size:13px;">${phoneLabel(l.studentPhone)}</div></div>
       <button class="wizard-close" style="font-size:22px;" onclick="closeLessonEditModal()">✕</button>
     </div>
-    <div class="grid grid-2">
-      <div class="field"><label>Data</label><input type="date" id="le-date" value="${l.date}" ${canManage?'':'disabled'}></div>
-      <div class="field"><label>Godzina</label><input type="time" id="le-time" value="${l.time}" ${canManage?'':'disabled'}></div>
-    </div>
-    ${currentUser.role==='operator' ? `
-    <div class="field"><label>Instruktor</label>
-      <select id="le-instructor" ${canManage?'':'disabled'}>
-        ${instructors.map(i=>`<option value="${i.uid}" data-name="${esc(i.name)}" ${l.instructorId===i.uid?'selected':''}>${esc(i.name)}</option>`).join('')}
-      </select>
-    </div>` : `<div class="field"><label>Instruktor</label><input value="${esc(l.instructorName)}" disabled></div>`}
 
-    <div class="opt-label">Typ zajęć</div>
-    <div class="choice-row">
-      <div class="choice-chip ${editDraft.lessonType==='individual'?'selected':''}" onclick="setEditLessonType('individual')">Indywidualne</div>
-      <div class="choice-chip ${editDraft.lessonType==='group'?'selected':''}" onclick="setEditLessonType('group')">Grupowe</div>
-    </div>
-    ${editDraft.lessonType==='group' ? `
-    <div class="field" style="max-width:180px;">
-      <label>Liczba uczestników</label>
-      <input type="number" min="2" max="12" id="le-groupsize" value="${editDraft.groupSize}" oninput="onEditGroupSizeInput(this)" ${canManage?'':'disabled'}>
-    </div>` : ''}
+    ${changed ? `<div class="edit-summary"><span class="was">${fmtWhen(l.date,l.time,l.instructorName)}</span><span>→</span><b>${fmtWhen(d.date,d.time||'—',d.instructorName)}</b></div>` : ''}
 
-    <div class="opt-label">Cena za te zajęcia</div>
-    <div class="field" style="margin-bottom:6px;max-width:200px;">
-      <div style="position:relative;">
-        <input type="number" min="0" step="5" id="le-price" value="${editDraft.price}" style="padding-right:52px;" oninput="onEditPriceInput(this)" ${canManage?'':'disabled'}>
-        <span style="position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--mist-dim);font-weight:700;font-size:13px;">zł</span>
+    <div class="edit-block">
+      <div class="opt-label">Dzień</div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button class="icon-btn dayview-arrow" onclick="editShiftDate(-1)" ${canManage?'':'disabled'} aria-label="Dzień wcześniej">‹</button>
+        <div style="flex:1;text-align:center;font-weight:700;font-size:16px;">${esc(WEEKDAY_LABELS[dow])}, ${fmtDatePL(d.date)}</div>
+        <button class="icon-btn dayview-arrow" onclick="editShiftDate(1)" ${canManage?'':'disabled'} aria-label="Dzień później">›</button>
       </div>
-    </div>
-    ${canManage ? `<div style="margin-bottom:14px;">
-      <button type="button" class="icon-btn" onclick="resetEditPriceToDefault()">↺ Cena domyślna (${fmtMoney(settings.basePrice * (editDraft.lessonType==='group' ? editDraft.groupSize : 1))})</button>
-    </div>` : ''}
+      ${canManage ? `<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+        <input type="date" id="le-date" value="${d.date}" onchange="setEditDate(this.value)" style="flex:1;min-width:140px;padding:9px 12px;background:var(--navy-2);border:1px solid var(--navy-4);border-radius:9px;color:var(--snow);font-size:15px;">
+        <button class="icon-btn" onclick="setEditDate(todayISO())">Dziś</button>
+        <button class="icon-btn" onclick="setEditDate(shiftDate(todayISO(),1))">Jutro</button>
+      </div>` : ''}
 
-    <div class="field"><label>Poziom zaawansowania</label>
-      <select id="le-level" ${canManage?'':'disabled'}>
-        ${LEVELS.map(lv=>`<option value="${lv.n}" ${l.level===lv.n?'selected':''}>${lv.n} — ${lv.label}</option>`).join('')}
-      </select>
+      ${currentUser.role==='operator' ? `
+      <div class="opt-label" style="margin-top:14px;">Instruktor</div>
+      <select id="le-instructor" onchange="setEditInstructor(this)" ${canManage?'':'disabled'} style="width:100%;padding:10px 12px;background:var(--navy-2);border:1px solid var(--navy-4);border-radius:9px;color:var(--snow);font-size:15px;">
+        ${instructors.map(i=>`<option value="${esc(i.uid)}" data-name="${esc(i.name)}" ${d.instructorId===i.uid?'selected':''}>${esc(i.name)}</option>`).join('')}
+      </select>` : `<div style="margin-top:10px;font-size:13.5px;color:var(--mist-dim);">Instruktor: <b style="color:var(--snow);">${esc(l.instructorName)}</b></div>`}
+
+      <div class="opt-label" style="margin-top:14px;">Godzina${d.time?` — wybrana: <span style="color:var(--lv5);">${esc(d.time)}</span>`:''}</div>
+      <div class="slot-grid">
+        ${slotList.map(x=>{
+          const none = x.freeDates.length===0;
+          const isOrig = x.time===l.time && d.date===l.date && d.instructorId===l.instructorId;
+          const title = x.blockedDates.map(b=>b.reason).join(', ');
+          return `<div class="slot ${none?'taken':''} ${d.time===x.time?'selected':''}" ${canManage&&!none?`onclick="setEditTime('${x.time}')"`:''} title="${esc(title)}">${x.time}${isOrig?'<span class="slot-count">obecnie</span>':''}</div>`;
+        }).join('')}
+      </div>
+      ${canManage ? `<div style="display:flex;gap:10px;align-items:center;margin-top:10px;">
+        <span style="font-size:12.5px;color:var(--mist-dim);flex-shrink:0;">Inna godzina:</span>
+        <input type="time" id="le-time-custom" value="${esc(custom)}" onchange="setEditTime(this.value)" style="flex:1;padding:9px 12px;background:var(--navy-2);border:1.5px solid var(--navy-3);border-radius:9px;color:var(--snow);font-size:15px;">
+      </div>` : ''}
+      ${warn ? `<div class="edit-warn">${warn}</div>` : ''}
     </div>
 
-    <div class="opt-label">Płatność</div>
-    <div class="choice-row">
-      <div class="choice-chip ${l.paymentStatus==='unpaid'?'selected pay-warn':''}" onclick="setEditPayment('unpaid', this)">Do zapłaty</div>
-      <div class="choice-chip ${l.paymentStatus==='paid'?'selected pay-ok':''}" onclick="setEditPayment('paid', this)">Zapłacono</div>
-    </div>
+    <details class="edit-more" ${d.moreOpen?'open':''} ontoggle="onEditMoreToggle(this)">
+      <summary>Więcej opcji — cena, płatność, status, poziom, uwagi</summary>
 
-    <div class="field"><label>Status</label>
-      <select id="le-status" ${canManage?'':'disabled'}>
-        ${Object.entries(STATUS_LABELS).map(([k,v])=>`<option value="${k}" ${l.status===k?'selected':''}>${v}</option>`).join('')}
-      </select>
-    </div>
+      <div class="opt-label">Typ zajęć</div>
+      <div class="choice-row">
+        <div class="choice-chip ${d.lessonType==='individual'?'selected':''}" onclick="setEditLessonType('individual')">Indywidualne</div>
+        <div class="choice-chip ${d.lessonType==='group'?'selected':''}" onclick="setEditLessonType('group')">Grupowe</div>
+      </div>
+      ${d.lessonType==='group' ? `
+      <div class="field" style="max-width:180px;">
+        <label>Liczba uczestników</label>
+        <input type="number" min="2" max="12" id="le-groupsize" value="${d.groupSize}" oninput="onEditGroupSizeInput(this)" ${canManage?'':'disabled'}>
+      </div>` : ''}
 
-    <div class="field"><label>Uwagi</label>
-      <textarea id="le-notes" rows="2" placeholder="Sprzęt, kontuzje, uwagi dla instruktora…" ${canManage?'':'disabled'}>${esc(l.notes||'')}</textarea>
-    </div>
+      <div class="opt-label">Cena za te zajęcia</div>
+      <div class="field" style="margin-bottom:6px;max-width:200px;">
+        <div style="position:relative;">
+          <input type="number" min="0" step="5" id="le-price" value="${d.price}" style="padding-right:52px;" oninput="onEditPriceInput(this)" ${canManage?'':'disabled'}>
+          <span style="position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--mist-dim);font-weight:700;font-size:13px;">zł</span>
+        </div>
+      </div>
+      ${canManage ? `<div style="margin-bottom:14px;">
+        <button type="button" class="icon-btn" onclick="resetEditPriceToDefault()">↺ Cena domyślna (${fmtMoney(settings.basePrice * (d.lessonType==='group' ? d.groupSize : 1))})</button>
+      </div>` : ''}
+
+      <div class="field"><label>Poziom zaawansowania</label>
+        <select id="le-level" ${canManage?'':'disabled'}>
+          ${LEVELS.map(lv=>`<option value="${lv.n}" ${l.level===lv.n?'selected':''}>${lv.n} — ${lv.label}</option>`).join('')}
+        </select>
+      </div>
+
+      <div class="opt-label">Płatność</div>
+      <div class="choice-row">
+        <div class="choice-chip ${l.paymentStatus==='unpaid'?'selected pay-warn':''}" onclick="setEditPayment('unpaid', this)">Do zapłaty</div>
+        <div class="choice-chip ${l.paymentStatus==='paid'?'selected pay-ok':''}" onclick="setEditPayment('paid', this)">Zapłacono</div>
+      </div>
+
+      <div class="field"><label>Status</label>
+        <select id="le-status" ${canManage?'':'disabled'}>
+          ${Object.entries(STATUS_LABELS).map(([k,v])=>`<option value="${k}" ${l.status===k?'selected':''}>${v}</option>`).join('')}
+        </select>
+      </div>
+
+      <div class="field"><label>Uwagi</label>
+        <textarea id="le-notes" rows="2" placeholder="Sprzęt, kontuzje, uwagi dla instruktora…" ${canManage?'':'disabled'}>${esc(l.notes||'')}</textarea>
+      </div>
+    </details>
 
     ${canManage ? `
-    <button class="btn btn-gold btn-block" style="margin-bottom:10px;" onclick="openWizardForStudent('${escAttr(l.studentName)}','${escAttr(l.studentPhone)}')">＋ Dopisz kolejne zajęcia dla ${esc(l.studentName)}</button>
-    <div style="display:flex;gap:10px;margin-top:6px;">
-      <button class="btn btn-outline" style="flex:1" onclick="deleteLessonFromEdit()">Usuń zajęcia</button>
-      <button class="btn btn-primary" style="flex:1" onclick="saveLessonEdit()">Zapisz zmiany</button>
+    <button class="btn btn-primary btn-block" style="margin-bottom:10px;" onclick="saveLessonEdit()">${changed ? '✓ Zapisz nowy termin' : 'Zapisz zmiany'}</button>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-gold" style="flex:1;" onclick="openWizardForStudent('${escAttr(l.studentName)}','${escAttr(l.studentPhone)}')">＋ Kolejne zajęcia</button>
+      <button class="btn btn-outline" style="flex:0 0 auto;" onclick="deleteLessonFromEdit()">Usuń</button>
     </div>` : `<div style="color:var(--mist-dim);font-size:13px;margin-top:6px;">Nie masz uprawnień do edycji tych zajęć.</div>`}
   `;
   restoreEditFormState();
 }
+/* Zmiany terminu: zapamiętujemy wpisane w "Więcej opcji" dane, zmieniamy szkic i przerysowujemy */
+window.setEditDate = function(iso){ if(!iso) return; captureEditFormState(); editDraft.date = iso; renderLessonEditModal(); };
+window.editShiftDate = function(n){ setEditDate(shiftDate(editDraft.date, n)); };
+window.setEditTime = function(t){ if(!t) return; captureEditFormState(); editDraft.time = t; renderLessonEditModal(); };
+window.setEditInstructor = function(sel){
+  captureEditFormState();
+  editDraft.instructorId = sel.value;
+  editDraft.instructorName = sel.selectedOptions[0].dataset.name;
+  renderLessonEditModal();
+};
+window.onEditMoreToggle = function(el){ editDraft.moreOpen = el.open; };
 window.setEditPayment = function(status, el){
   pendingEditPayment = status;
   el.parentElement.querySelectorAll('.choice-chip').forEach(c=>c.classList.remove('selected','pay-ok','pay-warn'));
@@ -2571,14 +2672,14 @@ function captureEditFormState(){
   if(p) editDraft.price = Number(p.value)||0;
   if(g) editDraft.groupSize = Math.max(2, Number(g.value)||2);
   // zapamiętaj też pozostałe pola, bo przerysowanie odtwarza je z rekordu
-  ['le-date','le-time','le-status','le-level','le-notes','le-instructor'].forEach(id=>{
+  ['le-status','le-level','le-notes'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) editDraft[id] = el.value;
   });
 }
 /* Po przerysowaniu przywracamy wartości, których użytkownik jeszcze nie zapisał. */
 function restoreEditFormState(){
-  ['le-date','le-time','le-status','le-level','le-notes','le-instructor'].forEach(id=>{
+  ['le-status','le-level','le-notes'].forEach(id=>{
     const el = document.getElementById(id);
     if(el && editDraft[id] !== undefined) el.value = editDraft[id];
   });
@@ -2586,17 +2687,11 @@ function restoreEditFormState(){
 window.saveLessonEdit = async function(){
   const l = lessons.find(x=>x.id===editingLessonId);
   if(!l) return;
-  const date = document.getElementById('le-date').value;
-  const time = document.getElementById('le-time').value;
-  const status = document.getElementById('le-status').value;
-  let instructorId = l.instructorId, instructorName = l.instructorName;
-  const instrSel = document.getElementById('le-instructor');
-  if(instrSel && !instrSel.disabled){
-    instructorId = instrSel.value;
-    instructorName = instrSel.selectedOptions[0].dataset.name;
-  }
-  if(!date || !time){ showToast('Podaj datę i godzinę'); return; }
   captureEditFormState();
+  const date = editDraft.date, time = editDraft.time;
+  const instructorId = editDraft.instructorId, instructorName = editDraft.instructorName;
+  const status = document.getElementById('le-status').value;
+  if(!date || !time){ showToast('Wybierz dzień i godzinę'); return; }
   const level = Number(document.getElementById('le-level').value) || l.level;
   const notes = (document.getElementById('le-notes')?.value || '').trim();
   const lessonType = editDraft.lessonType;
@@ -2617,16 +2712,22 @@ window.saveLessonEdit = async function(){
         : {reminderPaymentSent: false, paidAt: null, paidByName: null, paidById: null, paymentMethod: null}),
       lessonType, groupSize, clientPrice, level, notes
     };
+    // po przełożeniu zajęć poprzednie przypomnienie SMS jest nieaktualne
+    if(date!==l.date || time!==l.time) payload.reminderSent = false;
     // przy zmianie instruktora przeliczamy jego wypłatę wg jego własnej stawki
     if(instructorId !== l.instructorId){
       const newInstr = instructors.find(i=>i.uid===instructorId);
       payload.instructorPay = newInstr ? (newInstr.pricePerLesson ?? settings.instructorRateDefault) : settings.instructorRateDefault;
     }
     await updateDoc(doc(db,'lessons',editingLessonId), payload);
-    showToast('Zajęcia zaktualizowane');
+    showToast(date!==l.date || time!==l.time ? `Przełożono na ${fmtDatePL(date)}, ${time}` : 'Zajęcia zaktualizowane');
     closeLessonEditModal();
     calSelectedDate = date;
     renderPage();
+    // jeśli edycję otwarto z historii ucznia — odśwież tę listę
+    if(studentDetailOpen && document.getElementById('student-modal-backdrop').classList.contains('active')){
+      openStudentDetail(studentDetailOpen.name, studentDetailOpen.phone);
+    }
   }catch(e){
     showToast('Błąd zapisu zmian');
   }
@@ -2690,7 +2791,7 @@ function renderPaymentsPage(main){
       <div style="color:var(--mist-dim);font-size:12.5px;margin-bottom:12px;">Zajęcia, które się skończyły ponad ${settings.paymentGraceMinutes ?? 20} min temu i wciąż nie są opłacone.</div>
       <div class="table-wrap"><table><thead><tr><th>Kursant</th><th>Data i godz.</th><th>Instruktor</th><th>Kwota</th><th>Zalega</th><th></th></tr></thead><tbody>
         ${overdue.sort((a,b)=>lessonEndsAtMs(a)-lessonEndsAtMs(b)).map(l=>`<tr>
-          <td class="name-cell">${avatarHtml(l.studentName)}<div><b>${esc(l.studentName)}</b><br><span style="color:var(--mist-dim);font-size:12px;">${esc(l.studentPhone)}</span></div></td>
+          <td class="name-cell">${avatarHtml(l.studentName)}<div><b>${esc(l.studentName)}</b><br><span style="color:var(--mist-dim);font-size:12px;">${phoneLabel(l.studentPhone)}</span></div></td>
           <td>${fmtDatePL(l.date)}<br><span style="color:var(--mist-dim);font-size:12px;">${l.time}</span></td>
           <td>${esc(l.instructorName)}</td>
           <td><b>${fmtMoney(lessonPrice(l))}</b></td>
@@ -2706,7 +2807,7 @@ function renderPaymentsPage(main){
       `<div class="table-wrap"><table><thead><tr><th>Kursant</th><th>Telefon</th><th>Nieopłaconych zajęć</th><th>Łącznie</th><th>Najstarsze</th><th></th></tr></thead><tbody>
         ${debtors.map(d=>`<tr>
           <td class="name-cell">${avatarHtml(d.name)}<b>${esc(d.name)}</b></td>
-          <td>${esc(d.phone)}</td>
+          <td>${phoneLabel(d.phone)}</td>
           <td>${d.lessons.length}${d.overdueCount>0?` <span class="badge" style="background:#E6394622;color:#E63946;">${d.overdueCount} zaległe</span>`:''}</td>
           <td><b style="font-size:15px;">${fmtMoney(d.total)}</b></td>
           <td>${fmtDatePL([...d.lessons].sort((a,b)=>a.date.localeCompare(b.date))[0].date)}</td>
@@ -2840,7 +2941,7 @@ function renderStudentsList(){
       const hasNote = !!(studentNotes[studentDocId(s.key)]?.notes);
       return `<tr>
         <td class="name-cell">${avatarHtml(s.name)}<b>${esc(s.name)}</b></td>
-        <td>${esc(s.phone)}</td>
+        <td>${phoneLabel(s.phone)}</td>
         <td><span class="badge" style="background:${cssColor(lv.key)}22;color:${cssColor(lv.key)};"><span class="dot" style="background:${cssColor(lv.key)}"></span>${lv.n} — ${lv.label}</span></td>
         <td>${s.count}</td>
         <td>${fmtDatePL(s.lastDate)}</td>
@@ -2859,7 +2960,9 @@ window.onStudentSearchInput = function(el){
 };
 
 /* --- Student detail modal: full lesson history + persistent instructor note --- */
+let studentDetailOpen = null;
 window.openStudentDetail = function(name, phone){
+  studentDetailOpen = {name, phone};
   const key = studentKey(name, phone);
   const studentLessons = lessons
     .filter(l=>studentKey(l.studentName, l.studentPhone)===key)
@@ -2868,7 +2971,7 @@ window.openStudentDetail = function(name, phone){
   const content = document.getElementById('student-modal-content');
   content.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:18px;">
-      <div class="name-cell">${avatarHtml(name)}<div><h3 style="font-size:22px;">${esc(name)}</h3><div style="color:var(--mist-dim);font-size:13px;">${esc(phone)}</div></div></div>
+      <div class="name-cell">${avatarHtml(name)}<div><h3 style="font-size:22px;">${esc(name)}</h3><div style="color:var(--mist-dim);font-size:13px;">${phoneLabel(phone)}</div></div></div>
       <button class="wizard-close" style="font-size:24px;" onclick="closeStudentModal()">✕</button>
     </div>
 
@@ -2882,18 +2985,21 @@ window.openStudentDetail = function(name, phone){
 
     <h3 style="font-size:17px;margin-bottom:10px;">Historia nauki (${studentLessons.length})</h3>
     ${studentLessons.length===0 ? `<div class="empty-state" style="padding:20px;"><b>Brak zajęć</b></div>` :
-    `<div class="table-wrap"><table><thead><tr><th>Data</th><th>Godz.</th><th>Instruktor</th><th>Poziom</th><th>Status</th><th>Uwagi z zajęć</th></tr></thead><tbody>
+    `<div class="table-wrap"><table><thead><tr><th>Data</th><th>Godz.</th><th>Instruktor</th><th>Poziom</th><th>Status</th><th>Uwagi z zajęć</th><th></th></tr></thead><tbody>
       ${studentLessons.map(l=>{
         const lv = levelMeta(l.level);
-        return `<tr><td>${fmtDatePL(l.date)}</td><td>${l.time}</td><td>${esc(l.instructorName)}</td>
+        const canEdit = currentUser.role==='operator' || currentUser.canManageAll || l.instructorId===currentUser.uid;
+        const upcoming = l.date >= todayISO() && l.status!=='cancelled';
+        return `<tr${upcoming?' style="background:rgba(74,144,217,0.10);"':''}><td>${fmtDatePL(l.date)}${upcoming?'<br><span style="font-size:11px;color:var(--ice);font-weight:700;">NADCHODZĄCE</span>':''}</td><td>${l.time}</td><td>${esc(l.instructorName)}</td>
         <td><span class="badge" style="background:${cssColor(lv.key)}22;color:${cssColor(lv.key)};">${lv.n}</span></td>
-        <td>${statusBadge(l.status)}</td><td style="max-width:220px;">${l.notes ? esc(l.notes) : '<span style="color:var(--mist-dim);">—</span>'}</td></tr>`;
+        <td>${statusBadge(l.status)}</td><td style="max-width:220px;">${l.notes ? esc(l.notes) : '<span style="color:var(--mist-dim);">—</span>'}</td>
+        <td>${canEdit ? `<button class="icon-btn" onclick="openLessonEdit('${escAttr(l.id)}')" title="Zmień dzień lub godzinę">✎ Zmień</button>` : ''}</td></tr>`;
       }).join('')}
     </tbody></table></div>`}
   `;
   document.getElementById('student-modal-backdrop').classList.add('active');
 };
-window.closeStudentModal = function(){ document.getElementById('student-modal-backdrop').classList.remove('active'); };
+window.closeStudentModal = function(){ studentDetailOpen = null; document.getElementById('student-modal-backdrop').classList.remove('active'); };
 window.saveStudentNotes = async function(name, phone){
   const val = document.getElementById('student-notes-input').value.trim();
   try{
@@ -3338,7 +3444,7 @@ function renderRemindersPage(main){
           <div class="sms-item">
             <div class="sms-num">${idx+1}</div>
             <div class="sms-body">
-              <b>${esc(l.studentName)}</b> <span style="color:var(--mist-dim);">${esc(l.studentPhone)}</span>
+              <b>${esc(l.studentName)}</b> <span style="color:var(--mist-dim);">${phoneLabel(l.studentPhone)}</span>
               <div class="sms-reason">${l.time} · ${esc(l.instructorName)} · ${esc(smsDecision(l).reason)}</div>
               <div class="sms-preview">${esc(smsMessageFor(l))}</div>
             </div>
@@ -3354,7 +3460,7 @@ function renderRemindersPage(main){
     ${sent.length>0 ? `<div class="card">
       <h3>✓ Wysłane (${sent.length})</h3>
       <div class="table-wrap"><table><thead><tr><th>Godz.</th><th>Kursant</th><th>Telefon</th><th></th></tr></thead><tbody>
-        ${sent.map(l=>`<tr><td><b>${l.time}</b></td><td>${esc(l.studentName)}</td><td>${esc(l.studentPhone)}</td>
+        ${sent.map(l=>`<tr><td><b>${l.time}</b></td><td>${esc(l.studentName)}</td><td>${phoneLabel(l.studentPhone)}</td>
         <td><button class="icon-btn" onclick="unmarkSmsSent('${escAttr(l.id)}')">Cofnij</button></td></tr>`).join('')}
       </tbody></table></div>
     </div>` : ''}
@@ -3365,7 +3471,7 @@ function renderRemindersPage(main){
       <div class="table-wrap"><table><thead><tr><th>Godz.</th><th>Kursant</th><th>Dlaczego pominięty</th><th></th></tr></thead><tbody>
         ${skipped.map(l=>`<tr><td><b>${l.time}</b></td><td>${esc(l.studentName)}</td>
         <td><span style="color:var(--mist-dim);font-size:12.5px;">${esc(smsDecision(l).reason)}</span></td>
-        <td><button class="icon-btn" onclick="setSmsOverride('${escAttr(l.id)}','force')">📩 Wyślij mimo to</button></td></tr>`).join('')}
+        <td>${l.studentPhone ? `<button class="icon-btn" onclick="setSmsOverride('${escAttr(l.id)}','force')">📩 Wyślij mimo to</button>` : ''}</td></tr>`).join('')}
       </tbody></table></div>
     </div>` : ''}
     </div>
@@ -3610,13 +3716,13 @@ window.highlightDurationPreset = function(){
 ===================================================================== */
 
 /* Czy dany instruktor jest wolny o danej godzinie, w każdym z wybranych dni */
-function instructorAvailabilityAt(instructorId, dates, time){
+function instructorAvailabilityAt(instructorId, dates, time, ignoreId){
   const res = {freeDates:[], blockedDates:[]};
   const instr = instructors.find(i=>i.uid===instructorId)
     || (currentUser.uid===instructorId ? currentUser : null);
   const minutes = toMinutes(time);
   dates.forEach(date=>{
-    const dayLessons = lessons.filter(l=>l.date===date && l.status!=='cancelled');
+    const dayLessons = lessons.filter(l=>l.date===date && l.status!=='cancelled' && l.id!==ignoreId);
     const taken = !!overlappingLesson(dayLessons, instructorId, time);
     const pb = personalBreakWindow(instr, date);
     const inBreak = pb && minutes < pb.end && minutes + settings.lessonDuration > pb.start;
@@ -3632,7 +3738,7 @@ function instructorAvailabilityAt(instructorId, dates, time){
 }
 
 /* Siatka godzin dla KONKRETNEGO instruktora (tryb: najpierw instruktor) */
-function slotAvailability(instructorId, dates){
+function slotAvailability(instructorId, dates, ignoreId){
   const slotMap = new Map();
   dates.forEach(date=>{
     generateDaySlots(date).slots.forEach(t=>{
@@ -3642,7 +3748,7 @@ function slotAvailability(instructorId, dates){
   });
   if(instructorId){
     slotMap.forEach((entry, time)=>{
-      const av = instructorAvailabilityAt(instructorId, dates, time);
+      const av = instructorAvailabilityAt(instructorId, dates, time, ignoreId);
       entry.freeDates = av.freeDates;
       entry.blockedDates = av.blockedDates;
     });
@@ -3705,7 +3811,7 @@ window.openWizard = function(){
     dates:[],            // można zapisać ucznia na kilka dni za jednym razem
     instructorId: currentUser.role==='instructor' ? currentUser.uid : null,
     instructorName: currentUser.role==='instructor' ? currentUser.name : null,
-    time:null, times:[], runLen:1, customTime:'', customByDate:{}, perDay:false, timesByDate:{}, name:'', countryCode:'+48', phone:'', level:null,
+    time:null, times:[], runLen:1, customTime:'', customByDate:{}, perDay:false, timesByDate:{}, name:'', countryCode:'+48', phone:'', phoneSkipped:false, level:null,
     lessonType:'individual', groupSize:2, paymentStatus:'unpaid', notes:'',
     price: settings.basePrice, priceTouched:false
   };
@@ -3760,6 +3866,7 @@ window.openWizardForStudent = function(name, phone){
     name: last.studentName,
     countryCode,
     phone: digits,
+    phoneSkipped: !last.studentPhone,
     level: last.level,
     lessonType: last.lessonType || 'individual',
     groupSize: last.groupSize && last.groupSize>1 ? last.groupSize : 2,
@@ -4042,7 +4149,7 @@ function renderWizardStep(){
     body.innerHTML = `<div class="wizard-panel">
       ${wizardInfoHtml()}
       <h2>Telefon kontaktowy</h2>
-      <div class="wizard-hint">Numer do wysyłki przypomnień SMS</div>
+      <div class="wizard-hint">Numer do wysyłki przypomnień SMS (można pominąć)</div>
       <div class="phone-row">
         <select id="w-cc" onchange="onCountryChange(this)">
           ${COUNTRY_CODES.map(c=>`<option value="${c.code}" ${wData.countryCode===c.code?'selected':''}>${c.label}</option>`).join('')}
@@ -4050,7 +4157,18 @@ function renderWizardStep(){
         <input class="big-input" id="w-phone" placeholder="${'9'.repeat(cc.digits)}" value="${wData.phone}" inputmode="numeric" maxlength="${cc.digits}" oninput="onPhoneFieldInput(this)">
       </div>
       <div class="field-error" id="w-phone-err"></div>
-      ${actionsHtml(wData.phone.length===cc.digits, false)}
+      ${(()=>{
+        // znany kursant: ten sam numer z poprzednich zajęć jednym dotknięciem
+        const nm = wData.name.trim().toLowerCase();
+        const known = nm ? [...new Set(buildStudentsMap().filter(x=>x.phone && x.name.trim().toLowerCase()===nm).map(x=>x.phone))].slice(0,3) : [];
+        return known.length ? `<div style="margin-top:6px;">
+          <div class="opt-label">Ten kursant już u nas jest</div>
+          ${known.map(ph=>`<button type="button" class="btn btn-outline btn-block" style="margin-bottom:8px;" onclick="useKnownPhone('${escAttr(ph)}')">Użyj numeru ${esc(ph)}</button>`).join('')}
+        </div>` : '';
+      })()}
+      <button type="button" class="btn btn-outline btn-block" style="margin-top:10px;" onclick="skipPhone()">${wData.phoneSkipped && !wData.phone ? '✓ Bez numeru telefonu' : 'Pomiń numer telefonu'}</button>
+      <div style="text-align:center;font-size:12px;color:var(--mist-dim);margin-top:8px;">Bez numeru nie zostanie wysłane przypomnienie SMS.</div>
+      ${actionsHtml(wData.phone.length===cc.digits || (wData.phoneSkipped && !wData.phone), false)}
     </div>`;
     setTimeout(()=>document.getElementById('w-phone')?.focus(), 50);
     return;
@@ -4088,7 +4206,7 @@ function renderWizardStep(){
             : `<div class="summary-row"><span class="k">${(wData.times||[]).length>1?'Godziny':'Godzina'}</span><span class="v">${esc([...(wData.times||[])].sort().join(', '))}${wData.dates.length>1?' (każdego dnia)':''}</span></div>`}
           <div class="summary-row"><span class="k">Instruktor</span><span class="v">${esc(wData.instructorName)}</span></div>
           <div class="summary-row"><span class="k">Uczeń</span><span class="v">${esc(wData.name)}</span></div>
-          <div class="summary-row"><span class="k">Telefon</span><span class="v">${esc(wData.countryCode)} ${esc(wData.phone)}</span></div>
+          <div class="summary-row"><span class="k">Telefon</span><span class="v">${wData.phone ? `${esc(wData.countryCode)} ${esc(wData.phone)}` : '<span style="color:var(--mist-dim);">bez numeru</span>'}</span></div>
           <div class="summary-row"><span class="k">Poziom</span><span class="v" style="color:${cssColor(lv.key)}">${lv.n} — ${lv.label}</span></div>
         </div>
 
@@ -4252,8 +4370,24 @@ window.onNameFieldInput = function(el){
   if(btn) btn.disabled = el.value.trim().length <= 1;
 };
 
+window.skipPhone = function(){
+  wData.phone = ''; wData.phoneSkipped = true;
+  wizardStepNext();
+};
+/* Rozbija zapisany numer na kierunkowy + resztę cyfr */
+function splitPhone(full){
+  full = String(full||'');
+  const cc = COUNTRY_CODES.find(c=>c.code!=='+other' && full.startsWith(c.code));
+  return cc ? {countryCode:cc.code, digits:full.slice(cc.code.length)} : {countryCode:'+48', digits:full.replace(/\D/g,'')};
+}
+window.useKnownPhone = function(full){
+  const sp = splitPhone(full);
+  wData.countryCode = sp.countryCode; wData.phone = sp.digits; wData.phoneSkipped = false;
+  wizardStepNext();
+};
 window.onCountryChange = function(sel){
   wData.countryCode = sel.value;
+  wData.phoneSkipped = false;
   wData.phone = '';
   renderWizardStep();
 };
@@ -4263,6 +4397,7 @@ window.onPhoneFieldInput = function(el){
   const digits = el.value.replace(/\D/g,'').slice(0, cc.digits);
   el.value = digits;
   wData.phone = digits;
+  wData.phoneSkipped = false;
   const valid = digits.length === cc.digits;
   const errEl = document.getElementById('w-phone-err');
   if(errEl) errEl.textContent = (digits.length>0 && !valid) ? `Numer musi mieć ${cc.digits} cyfr.` : '';
@@ -4442,7 +4577,7 @@ window.submitWizard = async function(){
       instructorId: wData.instructorId,
       instructorName: wData.instructorName,
       studentName: wData.name.trim(),
-      studentPhone: wData.countryCode + wData.phone,
+      studentPhone: wData.phone ? wData.countryCode + wData.phone : '',
       level: wData.level,
       clientPrice: wData.price,
       instructorPay: instructorPay,
